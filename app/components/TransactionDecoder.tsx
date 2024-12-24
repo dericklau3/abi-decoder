@@ -78,6 +78,11 @@ const TransactionDecoder = () => {
       const iface = new Interface(JSON.parse(abi));
       const decoded = iface.parseTransaction({ data: txData });
       
+      if (!decoded) {
+        setError('无法解析交易数据');
+        return;
+      }
+
       // 处理 BigInt 序列化问题
       const processArgs = (args: any): any => {
         if (Array.isArray(args)) {
