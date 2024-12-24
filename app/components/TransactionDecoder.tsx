@@ -174,7 +174,7 @@ const TransactionDecoder = () => {
         </div>
 
         <div className="mb-4">
-          <label className="block mb-2">交易数据:</label>
+          <label className="block mb-2">data:</label>
           <input
             type="text"
             className="w-full p-2 border rounded"
