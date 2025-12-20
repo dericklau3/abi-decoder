@@ -182,6 +182,10 @@ const TransactionDecoder = () => {
       }
       const dataHex = normalizeHex(eventData || '0x');
       const decoded = iface.parseLog({ topics, data: dataHex });
+      if (!decoded) {
+        setError('无法解析事件日志');
+        return;
+      }
       setDecodedEvent({
         name: decoded.name,
         signature: decoded.signature,
