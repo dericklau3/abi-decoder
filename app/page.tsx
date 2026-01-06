@@ -1,9 +1,10 @@
+import AppShell from './components/AppShell';
 import TransactionDecoder from './components/TransactionDecoder';
 
 export default function Home() {
   return (
-    <main className="min-h-screen p-4">
+    <AppShell>
       <TransactionDecoder />
-    </main>
+    </AppShell>
   );
 }
