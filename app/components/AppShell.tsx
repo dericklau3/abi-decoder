@@ -12,6 +12,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { name: "交易解码", href: "/" },
   { name: "转换", href: "/address" },
+  { name: "合约地址", href: "/contract-address" },
 ];
 
 const AppShell = ({ children }: { children: React.ReactNode }) => {
