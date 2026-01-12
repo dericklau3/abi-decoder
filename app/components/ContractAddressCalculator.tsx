@@ -66,7 +66,7 @@ const ContractAddressCalculator = () => {
       const checksummed = getAddress(normalizedAddress);
       const computed = getCreateAddress({
         from: checksummed,
-        nonce: parsedNonce.value ?? 0n,
+        nonce: parsedNonce.value ?? BigInt(0),
       });
       setDerivedAddress(computed);
     } catch {
