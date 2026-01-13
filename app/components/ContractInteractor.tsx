@@ -117,6 +117,16 @@ const getInjectedProvider = () => {
   return window.ethereum;
 };
 
+const getOkxProvider = () => {
+  if (window.okxwallet?.request) {
+    return window.okxwallet;
+  }
+  if (window.okxwallet?.ethereum?.request) {
+    return window.okxwallet.ethereum;
+  }
+  return null;
+};
+
 const getProviderCandidates = () =>
   [window.okxwallet, window.okxwallet?.ethereum, window.ethereum].filter(
     Boolean,
@@ -137,6 +147,17 @@ const CHAIN_NAME_MAP: Record<number, string> = {
   8453: "Base",
   11155111: "Sepolia",
 };
+
+const COMMON_ADDRESSES = [
+  {
+    label: "零地址",
+    value: "0x0000000000000000000000000000000000000000",
+  },
+  {
+    label: "黑洞地址",
+    value: "0x000000000000000000000000000000000000dEaD",
+  },
+];
 
 const parseChainId = (value?: string | number) => {
   if (value === undefined || value === null) {
@@ -176,7 +197,7 @@ const ContractInteractor = () => {
   const [savedAbis, setSavedAbis] = useState<Array<SavedAbi>>([]);
   const [selectedAbiIndex, setSelectedAbiIndex] = useState<number | null>(null);
   const [selectedSignature, setSelectedSignature] = useState("");
-  const [argInputs, setArgInputs] = useState<string[]>([]);
+  const [argInputs, setArgInputs] = useState<Record<string, string[]>>({});
   const [payableValue, setPayableValue] = useState("");
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [account, setAccount] = useState("");
@@ -186,6 +207,8 @@ const ContractInteractor = () => {
   const [resultOutput, setResultOutput] = useState("");
   const [txHash, setTxHash] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [copyMessage, setCopyMessage] = useState("");
 
   useEffect(() => {
     const savedAbiList = safeJsonParse<Array<SavedAbi>>(
@@ -267,6 +290,16 @@ const ContractInteractor = () => {
         setChainId(null);
       });
   }, [provider]);
+
+  useEffect(() => {
+    if (!copyMessage) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setCopyMessage("");
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [copyMessage]);
 
   useEffect(() => {
     if (!provider || !account) {
@@ -381,11 +414,13 @@ const ContractInteractor = () => {
     localStorage.setItem(CURRENT_ABI_KEY, selected.abi);
   };
 
-  const handleConnect = async () => {
+  const handleConnect = async (
+    injectedOverride?: ReturnType<typeof getInjectedProvider>,
+  ) => {
     setErrorMessage("");
     setResultOutput("");
     setTxHash("");
-    const injected = getInjectedProvider();
+    const injected = injectedOverride ?? getInjectedProvider();
     if (!injected) {
       setErrorMessage("未检测到钱包插件，请安装或打开钱包");
       return;
@@ -400,6 +435,7 @@ const ContractInteractor = () => {
       setAccount(nextAccount);
       setNetworkName(network.name);
       setChainId(Number(network.chainId));
+      setIsWalletModalOpen(false);
     } catch (err) {
       setErrorMessage("钱包连接失败，请检查授权");
     }
@@ -409,13 +445,50 @@ const ContractInteractor = () => {
     setErrorMessage("");
     setResultOutput("");
     setTxHash("");
+    setIsLoading(false);
   };
 
   const handleSelectFunction = (signature: string) => {
     setSelectedSignature(signature);
-    setArgInputs([]);
     setPayableValue("");
     resetOutputs();
+  };
+
+  const handleCopyAccount = async () => {
+    if (!account) {
+      setCopyMessage("暂无可复制地址");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(account);
+      setCopyMessage("钱包地址已复制");
+    } catch {
+      setCopyMessage("复制失败，请检查浏览器权限");
+    }
+  };
+
+  const handleCopyAddress = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyMessage(`${label}已复制`);
+    } catch {
+      setCopyMessage("复制失败，请检查浏览器权限");
+    }
+  };
+
+  const ensureInputs = () => {
+    if (!selectedFunction) {
+      return false;
+    }
+    const currentInputs = argInputs[selectedFunction.signature] ?? [];
+    const missing = selectedFunction.inputs.some(
+      (_, index) => !(currentInputs[index] ?? "").trim(),
+    );
+    if (missing) {
+      setErrorMessage("请填写所有参数");
+      return false;
+    }
+    return true;
   };
 
   const handleCall = async () => {
@@ -426,6 +499,9 @@ const ContractInteractor = () => {
     }
     if (!selectedFunction) {
       setErrorMessage("请选择要调用的函数");
+      return;
+    }
+    if (!ensureInputs()) {
       return;
     }
     const normalizedAddress = normalizeAddressInput(addressInput);
@@ -441,8 +517,9 @@ const ContractInteractor = () => {
       setIsLoading(true);
       const checksummed = getAddress(normalizedAddress);
       const contract = new Contract(checksummed, abi, provider);
+      const currentInputs = argInputs[selectedFunction.signature] ?? [];
       const args = selectedFunction.inputs.map((_, index) =>
-        parseInputValue(argInputs[index] ?? ""),
+        parseInputValue(currentInputs[index] ?? ""),
       );
       const fn = contract.getFunction(selectedFunction.signature);
       const result = await fn(...args);
@@ -464,6 +541,9 @@ const ContractInteractor = () => {
       setErrorMessage("请选择要调用的函数");
       return;
     }
+    if (!ensureInputs()) {
+      return;
+    }
     const normalizedAddress = normalizeAddressInput(addressInput);
     if (!normalizedAddress) {
       setErrorMessage("请输入合约地址");
@@ -478,8 +558,9 @@ const ContractInteractor = () => {
       const signer = await provider.getSigner();
       const checksummed = getAddress(normalizedAddress);
       const contract = new Contract(checksummed, abi, signer);
+      const currentInputs = argInputs[selectedFunction.signature] ?? [];
       const args = selectedFunction.inputs.map((_, index) =>
-        parseInputValue(argInputs[index] ?? ""),
+        parseInputValue(currentInputs[index] ?? ""),
       );
       const fn = contract.getFunction(selectedFunction.signature);
       const overrides =
@@ -488,8 +569,7 @@ const ContractInteractor = () => {
           : {};
       const tx = await fn(...args, overrides);
       setTxHash(tx.hash);
-      const receipt = await tx.wait();
-      setResultOutput(formatResult(receipt));
+      setResultOutput("");
     } catch (err) {
       setErrorMessage("交易发送失败：" + (err as Error).message);
     } finally {
@@ -509,6 +589,37 @@ const ContractInteractor = () => {
         <p className="max-w-2xl text-sm text-slate-600 md:text-base">
           输入合约地址与 ABI，连接钱包后读取与调用合约函数。
         </p>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <span className="text-slate-400">常用地址</span>
+          {COMMON_ADDRESSES.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+              onClick={() => handleCopyAddress(item.value, item.label)}
+            >
+              <span>{item.label}</span>
+              <span className="font-normal text-slate-400">
+                {item.value.slice(0, 6)}...{item.value.slice(-4)}
+              </span>
+              <svg
+                aria-hidden="true"
+                className="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                />
+                <rect x="8" y="2" width="8" height="4" rx="1" />
+              </svg>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="fade-up-delay space-y-6">
@@ -518,7 +629,11 @@ const ContractInteractor = () => {
             <button
               type="button"
               className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
-              onClick={handleConnect}
+              onClick={() => {
+                if (!account) {
+                  setIsWalletModalOpen(true);
+                }
+              }}
             >
               {account ? "已连接" : "连接钱包"}
             </button>
@@ -540,8 +655,34 @@ const ContractInteractor = () => {
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 当前钱包
               </label>
-              <div className="truncate rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                {account || "未连接"}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 truncate rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  {account || "未连接"}
+                </div>
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                  onClick={handleCopyAccount}
+                  disabled={!account}
+                  aria-label="复制钱包地址"
+                  title="复制"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                    />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                  </svg>
+                </button>
               </div>
             </div>
             <div>
@@ -678,11 +819,23 @@ const ContractInteractor = () => {
                                   <input
                                     type="text"
                                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                                    value={argInputs[index] ?? ""}
+                                    value={
+                                      (argInputs[selectedFunction.signature] ??
+                                        [])[index] ?? ""
+                                    }
                                     onChange={(e) => {
-                                      const next = [...argInputs];
-                                      next[index] = e.target.value;
-                                      setArgInputs(next);
+                                      setArgInputs((prev) => {
+                                        const next = {
+                                          ...prev,
+                                          [selectedFunction.signature]: [
+                                            ...(prev[selectedFunction.signature] ??
+                                              []),
+                                          ],
+                                        };
+                                        next[selectedFunction.signature][index] =
+                                          e.target.value;
+                                        return next;
+                                      });
                                     }}
                                     placeholder="请输入参数值"
                                   />
@@ -798,11 +951,23 @@ const ContractInteractor = () => {
                                   <input
                                     type="text"
                                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                                    value={argInputs[index] ?? ""}
+                                    value={
+                                      (argInputs[selectedFunction.signature] ??
+                                        [])[index] ?? ""
+                                    }
                                     onChange={(e) => {
-                                      const next = [...argInputs];
-                                      next[index] = e.target.value;
-                                      setArgInputs(next);
+                                      setArgInputs((prev) => {
+                                        const next = {
+                                          ...prev,
+                                          [selectedFunction.signature]: [
+                                            ...(prev[selectedFunction.signature] ??
+                                              []),
+                                          ],
+                                        };
+                                        next[selectedFunction.signature][index] =
+                                          e.target.value;
+                                        return next;
+                                      });
                                     }}
                                     placeholder="请输入参数值"
                                   />
@@ -880,7 +1045,55 @@ const ContractInteractor = () => {
         )}
       </section>
 
-      {selectedFunction && null}
+      {isWalletModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-6 py-10 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_30px_90px_-60px_rgba(15,23,42,0.6)]">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-900">
+                选择钱包
+              </h3>
+              <button
+                type="button"
+                className="rounded-full border border-slate-200 px-2 py-1 text-xs text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+                onClick={() => setIsWalletModalOpen(false)}
+                aria-label="关闭"
+              >
+                ×
+              </button>
+            </div>
+            <p className="text-sm text-slate-500">目前仅支持 OKX Wallet。</p>
+            <div className="mt-4 space-y-3">
+              <button
+                type="button"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+                onClick={() => {
+                  const okxProvider = getOkxProvider();
+                  if (!okxProvider) {
+                    setErrorMessage("未检测到 OKX Wallet，请先安装或启用");
+                    return;
+                  }
+                  handleConnect(okxProvider);
+                }}
+              >
+                OKX Wallet
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+                onClick={() => setIsWalletModalOpen(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {copyMessage && (
+        <div className="fixed right-6 top-6 z-50 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.5)]">
+          {copyMessage}
+        </div>
+      )}
     </div>
   );
 };
