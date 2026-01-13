@@ -9,7 +9,7 @@ type SavedAbi = { name: string; abi: string };
 const ABI_LIST_KEY = 'abiList';
 const CURRENT_ABI_KEY = 'currentAbi';
 
-const safeJsonParse = <T,>(value: string, fallback: T): T => {
+const safeJsonParse = function <T>(value: string, fallback: T): T {
   try {
     return JSON.parse(value) as T;
   } catch {
@@ -46,7 +46,7 @@ const TransactionDecoder = () => {
   // 保存的 ABI 列表，格式为 { name: string, abi: string }[]
   const [savedAbis, setSavedAbis] = useState<Array<SavedAbi>>([]);
   const [abi, setAbi] = useState('');
-  const [abiName, setAbiName] = useState('');
+  const [selectedAbiIndex, setSelectedAbiIndex] = useState<number | null>(null);
   const [txData, setTxData] = useState('');
   const [functionName, setFunctionName] = useState('');
   const [decodedData, setDecodedData] = useState<any>(null);
@@ -64,66 +64,39 @@ const TransactionDecoder = () => {
     // 在客户端加载保存的数据
     const savedAbiList = safeJsonParse<Array<SavedAbi>>(localStorage.getItem(ABI_LIST_KEY) || '[]', []);
     const currentAbi = localStorage.getItem(CURRENT_ABI_KEY) || '';
-    
+
     setSavedAbis(savedAbiList);
     setAbi(currentAbi);
+    if (currentAbi) {
+      const idx = savedAbiList.findIndex((item) => item.abi === currentAbi);
+      setSelectedAbiIndex(idx >= 0 ? idx : null);
+    }
   }, []);
 
-  const persistAbiList = (abiList: Array<SavedAbi>, current?: string) => {
-    setSavedAbis(abiList);
-    localStorage.setItem(ABI_LIST_KEY, JSON.stringify(abiList));
-    if (current !== undefined) {
-      localStorage.setItem(CURRENT_ABI_KEY, current);
-    }
-  };
-
-  const saveAbi = () => {
-    if (!abiName.trim() || !abi.trim()) {
-      setError('请输入 ABI 名称和内容');
+  const handleSelectAbi = (indexValue: string) => {
+    if (!indexValue) {
+      setSelectedAbiIndex(null);
+      setAbi('');
+      localStorage.removeItem(CURRENT_ABI_KEY);
       return;
     }
-
-    const newAbiList = [...savedAbis, { name: abiName.trim(), abi }];
-    persistAbiList(newAbiList, abi);
-    setAbiName('');
-  };
-
-  const selectAbi = (savedAbi: SavedAbi) => {
-    setAbi(savedAbi.abi);
-    localStorage.setItem(CURRENT_ABI_KEY, savedAbi.abi);
-  };
-
-  const deleteAbi = (index: number) => {
-    const newAbiList = savedAbis.filter((_, i) => i !== index);
-    persistAbiList(newAbiList);
-  };
-
-  const handleFileDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      try {
-        const text = await file.text();
-        const json = JSON.parse(text);
-        const abiContent = json.abi ? JSON.stringify(json.abi, null, 2) : text;
-        
-        // 使用文件名（去掉扩展名）作为 ABI 名称
-        const fileName = file.name.replace(/\.[^/.]+$/, "");
-        
-        // 直接保存 ABI
-        const newAbiList = [...savedAbis, { name: fileName, abi: abiContent }];
-        persistAbiList(newAbiList, abiContent);
-        setAbi(abiContent);
-        
-      } catch (err) {
-        setError('文件解析失败：' + (err as Error).message);
-      }
+    const index = Number(indexValue);
+    const selected = savedAbis[index];
+    if (!selected) {
+      return;
     }
+    setSelectedAbiIndex(index);
+    setAbi(selected.abi);
+    localStorage.setItem(CURRENT_ABI_KEY, selected.abi);
   };
 
   const decodeTransaction = () => {
     try {
       setError('');
+      if (!abi.trim()) {
+        setError('请先选择 ABI');
+        return;
+      }
       const iface = new Interface(JSON.parse(abi));
       const decoded = iface.parseTransaction({ data: txData });
       
@@ -146,6 +119,10 @@ const TransactionDecoder = () => {
     setError('');
     setDecodedConstructor(null);
     try {
+      if (!abi.trim()) {
+        setError('请先选择 ABI');
+        return;
+      }
       const abiJson = JSON.parse(abi);
       // viem 需要 ABI 为对象数组
       if (!Array.isArray(abiJson)) {
@@ -170,6 +147,10 @@ const TransactionDecoder = () => {
     try {
       setError('');
       setDecodedEvent(null);
+      if (!abi.trim()) {
+        setError('请先选择 ABI');
+        return;
+      }
       const iface = new Interface(JSON.parse(abi));
       const topics = eventTopics
         .split(/[\n,]+/)
@@ -222,80 +203,55 @@ const TransactionDecoder = () => {
         </p>
       </div>
 
-      <div className="fade-up-delay grid gap-6 lg:grid-cols-[280px_1fr]">
-        {/* 左侧 ABI 列表 */}
-        <aside className="h-fit rounded-3xl border border-slate-200 bg-white/80 p-4 shadow-[0_16px_45px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
+      <div className="fade-up-delay space-y-6">
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-800">已保存 ABI</h2>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">
-              {savedAbis.length}
+            <h2 className="text-lg font-semibold text-slate-900">选择已保存 ABI</h2>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
+              {savedAbis.length} 个
             </span>
           </div>
-          <p className="mb-4 text-xs text-slate-500">
-            拖拽 JSON 文件到右侧区域即可自动保存。
-          </p>
-          <div className="space-y-2">
-            {(savedAbis || []).map((savedAbi, index) => (
-              <div
-                key={`abi-${index}`}
-                className="group flex items-center justify-between rounded-2xl border border-transparent bg-slate-50 px-3 py-2 transition hover:border-slate-200 hover:bg-white"
-              >
-                <button
-                  className="text-left text-sm font-medium text-slate-700 transition hover:text-slate-900"
-                  onClick={() => selectAbi(savedAbi)}
-                >
-                  {savedAbi.name}
-                </button>
-                <button
-                  className="text-sm text-slate-400 transition hover:text-rose-500"
-                  onClick={() => deleteAbi(index)}
-                  aria-label={`删除 ${savedAbi.name}`}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            {savedAbis.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400">
-                暂无保存的 ABI
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {/* 右侧主要内容 */}
-        <div className="space-y-6">
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
-            <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">共用 ABI</h2>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
-                Shared ABI
-              </span>
+          {savedAbis.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+              暂无 ABI，请先前往 ABI 管理页面添加。
             </div>
-            <div className="mb-2">
-              <label className="mb-2 block text-sm font-medium text-slate-700">合约 ABI</label>
-              <div
-                className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-4 transition hover:border-slate-300"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleFileDrop}
-              >
-                <textarea
-                  className="h-36 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                  value={abi}
-                  onChange={(e) => setAbi(e.target.value)}
-                  placeholder="请输入合约 ABI (JSON 格式) 或拖拽 JSON 文件到此处"
-                />
-                <p className="mt-2 text-xs text-slate-400">
-                  支持拖拽 ABI JSON 文件，自动解析并保存到左侧列表。
-                </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  ABI 列表
+                </label>
+                <select
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                  value={selectedAbiIndex === null ? "" : String(selectedAbiIndex)}
+                  onChange={(e) => handleSelectAbi(e.target.value)}
+                >
+                  <option value="">请选择 ABI</option>
+                  {savedAbis.map((item, index) => (
+                    <option key={`${item.name}-${index}`} value={index}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  当前 ABI
+                </label>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  {selectedAbiIndex === null
+                    ? "未选择"
+                    : savedAbis[selectedAbiIndex]?.name}
+                </div>
               </div>
             </div>
-          </section>
+          )}
+        </section>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">解析面板</h2>
-              <div className="flex flex-wrap gap-2">
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">解析面板</h2>
+            <div className="flex flex-wrap gap-2">
                 <button
                   className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
                     activePanel === 'tx'
@@ -481,7 +437,6 @@ const TransactionDecoder = () => {
               </pre>
             </section>
           )}
-        </div>
       </div>
     </div>
   );
