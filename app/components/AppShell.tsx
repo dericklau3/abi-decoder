@@ -15,6 +15,7 @@ const navItems: NavItem[] = [
   { name: "合约地址", href: "/contract-address" },
   { name: "合约交互", href: "/contract-interaction" },
   { name: "ABI 管理", href: "/abi-manager" },
+  { name: "Selector 映射", href: "/abi-selectors" },
 ];
 
 const AppShell = ({ children }: { children: React.ReactNode }) => {
