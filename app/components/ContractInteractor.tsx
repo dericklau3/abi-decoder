@@ -9,31 +9,7 @@ import {
   Interface,
   parseEther,
 } from "ethers";
-
-declare global {
-  interface Window {
-    ethereum?: {
-      on?: (event: string, handler: (...args: any[]) => void) => void;
-      removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-      request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-      providers?: unknown[];
-      isMetaMask?: boolean;
-      isCoinbaseWallet?: boolean;
-    };
-    okxwallet?: {
-      ethereum?: {
-        on?: (event: string, handler: (...args: any[]) => void) => void;
-        removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-        request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-        isOkxWallet?: boolean;
-      };
-      on?: (event: string, handler: (...args: any[]) => void) => void;
-      removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-      request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-      isOkxWallet?: boolean;
-    };
-  }
-}
+import { useWallet } from "./wallet/WalletProvider";
 
 type SavedAbi = { name: string; abi: string };
 
@@ -113,138 +89,6 @@ const formatResult = (value: unknown) => {
   }
 };
 
-type InjectedProvider = {
-  on?: (event: string, handler: (...args: any[]) => void) => void;
-  removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-  request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-  providers?: InjectedProvider[];
-  isMetaMask?: boolean;
-  isCoinbaseWallet?: boolean;
-  isBraveWallet?: boolean;
-  isOkxWallet?: boolean;
-  isOKXWallet?: boolean;
-  isOKExWallet?: boolean;
-};
-
-type EIP6963ProviderInfo = {
-  uuid: string;
-  name: string;
-  icon: string;
-  rdns: string;
-  // Spec allows extra properties. We ignore what we don't understand.
-  [key: string]: unknown;
-};
-
-type EIP6963ProviderDetail = {
-  info: EIP6963ProviderInfo;
-  provider: InjectedProvider;
-};
-
-type EIP6963AnnounceProviderEvent = CustomEvent<EIP6963ProviderDetail>;
-
-const uniqProviders = (items: Array<InjectedProvider | null | undefined>) => {
-  const seen = new Set<InjectedProvider>();
-  const result: InjectedProvider[] = [];
-  items.forEach((item) => {
-    if (!item || seen.has(item)) {
-      return;
-    }
-    seen.add(item);
-    result.push(item);
-  });
-  return result;
-};
-
-const getInjectedProviders = () => {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  const ethereum = window.ethereum as unknown as InjectedProvider | undefined;
-  const ethereumProviders = Array.isArray(ethereum?.providers)
-    ? ethereum?.providers
-    : [];
-  return uniqProviders([
-    ...ethereumProviders,
-    window.okxwallet as unknown as InjectedProvider | undefined,
-    window.okxwallet?.ethereum as unknown as InjectedProvider | undefined,
-    ethereum,
-  ]).filter((item) => typeof item.request === "function");
-};
-
-const getMetaMaskProvider = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const candidates = getInjectedProviders();
-  const okx = getOkxProvider();
-  return (
-    candidates.find((candidate) => {
-      if (!candidate.isMetaMask) {
-        return false;
-      }
-      // Some wallets/browsers intentionally set `isMetaMask = true` for compatibility
-      // (e.g. Brave Wallet), so we exclude known non-MetaMask providers to reduce
-      // false-positives in the UI "Detected" badge.
-      if (candidate.isBraveWallet) {
-        return false;
-      }
-      if (candidate.isCoinbaseWallet) {
-        return false;
-      }
-      if (candidate.isOkxWallet || candidate.isOKXWallet || candidate.isOKExWallet) {
-        return false;
-      }
-      if (okx && candidate === okx) {
-        return false;
-      }
-      return true;
-    }) ?? null
-  );
-};
-
-const getInjectedProvider = () =>
-  typeof window === "undefined"
-    ? undefined
-    : getMetaMaskProvider() ??
-      getOkxProvider() ??
-      (window.ethereum as unknown as InjectedProvider | undefined) ??
-      (window.okxwallet as unknown as InjectedProvider | undefined);
-
-const getOkxProvider = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  if (window.okxwallet?.request) {
-    return window.okxwallet;
-  }
-  if (window.okxwallet?.ethereum?.request) {
-    return window.okxwallet.ethereum;
-  }
-  const candidates = getInjectedProviders();
-  return (
-    candidates.find(
-      (candidate) =>
-        candidate.isOkxWallet ||
-        candidate.isOKXWallet ||
-        candidate.isOKExWallet,
-    ) ?? null
-  );
-};
-
-const getProviderCandidates = () => getInjectedProviders();
-
-const CHAIN_NAME_MAP: Record<number, string> = {
-  1: "Ethereum",
-  5: "Goerli",
-  56: "BNB Chain",
-  97: "BSC Testnet",
-  137: "Polygon",
-  42161: "Arbitrum One",
-  10: "Optimism",
-  8453: "Base",
-  11155111: "Sepolia",
-};
-
 const COMMON_ADDRESSES = [
   {
     label: "零地址",
@@ -256,32 +100,7 @@ const COMMON_ADDRESSES = [
   },
 ];
 
-const parseChainId = (value?: string | number) => {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value === "number") {
-    return value;
-  }
-  if (typeof value === "string") {
-    if (value.startsWith("0x") || value.startsWith("0X")) {
-      const parsed = Number.parseInt(value, 16);
-      return Number.isNaN(parsed) ? null : parsed;
-    }
-    const parsed = Number(value);
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-  return null;
-};
-
 const getChainLabel = (name: string, chainId: number | null) => {
-  if (chainId === null) {
-    return name;
-  }
-  const mapped = CHAIN_NAME_MAP[chainId];
-  if (mapped) {
-    return mapped;
-  }
   if (name && name !== "unknown") {
     return name;
   }
@@ -289,6 +108,13 @@ const getChainLabel = (name: string, chainId: number | null) => {
 };
 
 const ContractInteractor = () => {
+  const {
+    provider: sharedProvider,
+    account: sharedAccount,
+    networkName: sharedNetworkName,
+    chainId: sharedChainId,
+  } = useWallet();
+
   const [addressInput, setAddressInput] = useState("");
   const [abiInput, setAbiInput] = useState("");
   const [savedAbis, setSavedAbis] = useState<Array<SavedAbi>>([]);
@@ -304,14 +130,14 @@ const ContractInteractor = () => {
   const [resultOutput, setResultOutput] = useState("");
   const [txHash, setTxHash] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
-  const [activeInjected, setActiveInjected] = useState<InjectedProvider | null>(
-    null,
-  );
-  const [eip6963Providers, setEip6963Providers] = useState<EIP6963ProviderDetail[]>(
-    [],
-  );
+
+  useEffect(() => {
+    setProvider(sharedProvider);
+    setAccount(sharedAccount);
+    setNetworkName(sharedNetworkName);
+    setChainId(sharedChainId);
+  }, [sharedProvider, sharedAccount, sharedNetworkName, sharedChainId]);
 
   useEffect(() => {
     const savedAbiList = safeJsonParse<Array<SavedAbi>>(
@@ -328,167 +154,6 @@ const ContractInteractor = () => {
   }, []);
 
   useEffect(() => {
-    // EIP-6963 multi-wallet discovery
-    // - DApp listens to "eip6963:announceProvider"
-    // - DApp dispatches "eip6963:requestProvider"
-    const handler = (event: Event) => {
-      const detail = (event as EIP6963AnnounceProviderEvent).detail;
-      if (!detail?.info?.uuid || !detail?.provider) {
-        return;
-      }
-      setEip6963Providers((prev) => {
-        if (prev.some((item) => item.info.uuid === detail.info.uuid)) {
-          return prev;
-        }
-        return [...prev, detail];
-      });
-    };
-
-    window.addEventListener(
-      "eip6963:announceProvider",
-      handler as EventListener,
-    );
-    window.dispatchEvent(new Event("eip6963:requestProvider"));
-
-    return () => {
-      window.removeEventListener(
-        "eip6963:announceProvider",
-        handler as EventListener,
-      );
-    };
-  }, []);
-
-  const allProviderCandidates = useMemo(() => {
-    const discovered = eip6963Providers.map((item) => item.provider);
-    return uniqProviders([...getProviderCandidates(), ...discovered]).filter(
-      (item) => typeof item.request === "function",
-    );
-  }, [eip6963Providers]);
-
-  const sortedEip6963Providers = useMemo(() => {
-    return [...eip6963Providers].sort((a, b) =>
-      (a.info.name || "").localeCompare(b.info.name || ""),
-    );
-  }, [eip6963Providers]);
-
-  const discoveredRdnsSet = useMemo(() => {
-    return new Set(
-      sortedEip6963Providers
-        .map((item) => (item.info.rdns || "").toLowerCase())
-        .filter(Boolean),
-    );
-  }, [sortedEip6963Providers]);
-
-  const hasDiscoveredOkx = useMemo(() => {
-    if (sortedEip6963Providers.some((item) => /okx/i.test(item.info.name || ""))) {
-      return true;
-    }
-    for (const rdns of discoveredRdnsSet) {
-      if (rdns.includes("okx")) {
-        return true;
-      }
-    }
-    return false;
-  }, [sortedEip6963Providers, discoveredRdnsSet]);
-
-  const hasDiscoveredMetaMask = useMemo(() => {
-    if (
-      sortedEip6963Providers.some((item) => /metamask/i.test(item.info.name || ""))
-    ) {
-      return true;
-    }
-    for (const rdns of discoveredRdnsSet) {
-      if (rdns.includes("metamask")) {
-        return true;
-      }
-    }
-    return false;
-  }, [sortedEip6963Providers, discoveredRdnsSet]);
-
-  const okxInstalled = useMemo(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return Boolean(getOkxProvider());
-  }, []);
-
-  const metaMaskInstalled = useMemo(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    // OKX Wallet may expose `window.ethereum` with MetaMask-compat flags, which can cause
-    // false positives. If OKX is present and MetaMask wasn't discovered via EIP-6963,
-    // treat MetaMask as not installed.
-    if (!hasDiscoveredMetaMask && window.okxwallet) {
-      return false;
-    }
-    return Boolean(getMetaMaskProvider());
-  }, [hasDiscoveredMetaMask]);
-
-  useEffect(() => {
-    // Only subscribe to events from the currently-connected provider.
-    if (!activeInjected?.on) {
-      return;
-    }
-
-    const handleChainChanged = (nextChainId?: string) => {
-      const parsedId = parseChainId(nextChainId);
-      if (parsedId !== null) {
-        setChainId(parsedId);
-        setNetworkName(getChainLabel("", parsedId));
-      }
-      const nextProvider = new BrowserProvider(activeInjected as any);
-      setProvider(nextProvider);
-      nextProvider
-        .getNetwork()
-        .then((network) => {
-          setNetworkName(network.name);
-          setChainId(Number(network.chainId));
-        })
-        .catch(() => {
-          setNetworkName("");
-        });
-    };
-
-    const handleAccountsChanged = (accounts: string[]) => {
-      const nextAccount = accounts?.[0] ?? "";
-      setAccount(nextAccount);
-      if (!nextAccount) {
-        setProvider(null);
-        setNetworkName("");
-        setChainId(null);
-        setActiveInjected(null);
-      }
-    };
-
-    activeInjected.on("chainChanged", handleChainChanged);
-    activeInjected.on("accountsChanged", handleAccountsChanged);
-    activeInjected.on("networkChanged", handleChainChanged);
-
-    return () => {
-      activeInjected.removeListener?.("chainChanged", handleChainChanged);
-      activeInjected.removeListener?.("accountsChanged", handleAccountsChanged);
-      activeInjected.removeListener?.("networkChanged", handleChainChanged);
-    };
-  }, [activeInjected]);
-
-  useEffect(() => {
-    if (!provider) {
-      return;
-    }
-    provider
-      .getNetwork()
-      .then((network) => {
-        setNetworkName(network.name);
-        setChainId(Number(network.chainId));
-      })
-      .catch(() => {
-        setNetworkName("");
-        setChainId(null);
-      });
-  }, [provider]);
-
-  useEffect(() => {
     if (!copyMessage) {
       return;
     }
@@ -497,44 +162,6 @@ const ContractInteractor = () => {
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [copyMessage]);
-
-  useEffect(() => {
-    if (!provider || !account) {
-      return;
-    }
-    const request = activeInjected?.request;
-    if (!request) {
-      return;
-    }
-    let isActive = true;
-    const refreshNetwork = async () => {
-      try {
-        const chainHex = (await request({
-          method: "eth_chainId",
-        })) as string;
-        const parsedId = parseChainId(chainHex);
-        if (!isActive) {
-          return;
-        }
-        if (parsedId !== null) {
-          setChainId(parsedId);
-          setNetworkName(getChainLabel("", parsedId));
-          return;
-        }
-      } catch {
-        if (!isActive) {
-          return;
-        }
-        setChainId(null);
-      }
-    };
-    refreshNetwork();
-    const timer = window.setInterval(refreshNetwork, 2000);
-    return () => {
-      isActive = false;
-      window.clearInterval(timer);
-    };
-  }, [provider, account]);
 
   const { abi, error: abiError } = useMemo(
     () => parseAbiJson(abiInput),
@@ -604,49 +231,6 @@ const ContractInteractor = () => {
     setSelectedAbiIndex(index);
     setAbiInput(selected.abi);
     localStorage.setItem(CURRENT_ABI_KEY, selected.abi);
-  };
-
-  const handleConnect = async (
-    injectedOverride?: ReturnType<typeof getInjectedProvider>,
-  ) => {
-    setErrorMessage("");
-    setResultOutput("");
-    setTxHash("");
-	    const injected = injectedOverride ?? getInjectedProvider();
-	    if (!injected) {
-	      setErrorMessage("未安装钱包插件，请安装或打开钱包");
-	      return;
-	    }
-    try {
-      const nextProvider = new BrowserProvider(injected as any);
-      await nextProvider.send("eth_requestAccounts", []);
-      const signer = await nextProvider.getSigner();
-      const nextAccount = await signer.getAddress();
-      const network = await nextProvider.getNetwork();
-      setProvider(nextProvider);
-      setAccount(nextAccount);
-      setNetworkName(network.name);
-      setChainId(Number(network.chainId));
-      setActiveInjected(injected as unknown as InjectedProvider);
-      setIsWalletModalOpen(false);
-    } catch (err) {
-      setErrorMessage("钱包连接失败，请检查授权");
-    }
-  };
-
-  const handleDisconnect = () => {
-    // There is no standard "disconnect" for injected wallets; we clear local state.
-    // User can re-connect and/or switch accounts in the wallet UI.
-    setProvider(null);
-    setAccount("");
-    setNetworkName("");
-    setChainId(null);
-    setErrorMessage("");
-    setResultOutput("");
-    setTxHash("");
-    setIsLoading(false);
-    setActiveInjected(null);
-    setIsWalletModalOpen(false);
   };
 
   const resetOutputs = () => {
@@ -832,17 +416,8 @@ const ContractInteractor = () => {
 
       <div className="fade-up-delay space-y-6">
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">基础信息</h2>
-            <button
-              type="button"
-              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
-              onClick={() => {
-                setIsWalletModalOpen(true);
-              }}
-            >
-              {account ? "已连接" : "连接钱包"}
-            </button>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <div>
@@ -1250,149 +825,6 @@ const ContractInteractor = () => {
           </div>
         )}
       </section>
-
-      {isWalletModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-6 py-10 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_30px_90px_-60px_rgba(15,23,42,0.6)]">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-900">
-                选择钱包
-              </h3>
-              <button
-                type="button"
-                className="rounded-full border border-slate-200 px-2 py-1 text-xs text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-                onClick={() => setIsWalletModalOpen(false)}
-                aria-label="关闭"
-              >
-                ×
-              </button>
-            </div>
-            {account && (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold">当前已连接</span>
-                  <button
-                    type="button"
-                    className="rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-300"
-                    onClick={handleDisconnect}
-                  >
-                    断开连接
-                  </button>
-                </div>
-                <div className="mt-2 break-all text-xs font-medium text-slate-500">
-                  {account}
-                </div>
-                <div className="mt-1 text-xs text-slate-400">
-                  提示：切换账号请在钱包插件内切换，或断开后重新连接。
-                </div>
-              </div>
-            )}
-            <div className="mt-4 space-y-3">
-              {sortedEip6963Providers.length > 0 && (
-                <div className="space-y-2">
-                  <div className="px-1 text-xs font-semibold text-slate-500">
-                    已发现钱包
-                  </div>
-                  {sortedEip6963Providers.map((item) => (
-                    <button
-                      key={item.info.uuid}
-                      type="button"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
-                      onClick={() => handleConnect(item.provider)}
-                    >
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="flex min-w-0 items-center gap-3">
-                          {item.info.icon ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              alt=""
-                              src={item.info.icon}
-                              className="h-7 w-7 flex-none rounded-lg border border-slate-200 bg-white object-contain"
-                            />
-                          ) : (
-                            <span className="h-7 w-7 flex-none rounded-lg border border-slate-200 bg-slate-50" />
-                          )}
-                          <span className="min-w-0">
-                            <span className="block truncate">
-                              {item.info.name || item.info.rdns}
-                            </span>
-                            <span className="block truncate text-xs font-medium text-slate-400">
-                              {item.info.rdns}
-                            </span>
-                          </span>
-                        </span>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
-                          已安装
-                        </span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-	              <div className="pt-2">
-	                {!hasDiscoveredOkx && (
-	                  <button
-	                    type="button"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
-	                    onClick={() => {
-	                      if (!okxInstalled) {
-	                        setErrorMessage("未安装 OKX Wallet，请先安装或启用");
-	                        return;
-	                      }
-	                      const okxProvider = getOkxProvider();
-	                      if (!okxProvider) {
-	                        setErrorMessage("未安装 OKX Wallet，请先安装或启用");
-	                        return;
-	                      }
-	                      handleConnect(okxProvider);
-	                    }}
-	                  >
-	                    <span className="flex items-center justify-between gap-3">
-	                      <span>OKX Wallet</span>
-	                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
-	                        {okxInstalled ? "已安装" : "未安装"}
-	                      </span>
-	                    </span>
-	                  </button>
-	                )}
-	                {!hasDiscoveredMetaMask && (
-	                  <button
-	                    type="button"
-	                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
-	                    onClick={() => {
-	                      if (!metaMaskInstalled) {
-	                        setErrorMessage("未安装 MetaMask，请先安装或启用");
-	                        return;
-	                      }
-	                      const metamaskProvider = getMetaMaskProvider();
-	                      if (!metamaskProvider) {
-	                        setErrorMessage("未安装 MetaMask，请先安装或启用");
-	                        return;
-	                      }
-	                      handleConnect(metamaskProvider);
-	                    }}
-	                  >
-	                    <span className="flex items-center justify-between gap-3">
-	                      <span>MetaMask</span>
-	                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
-	                        {metaMaskInstalled ? "已安装" : "未安装"}
-	                      </span>
-	                    </span>
-	                  </button>
-	                )}
-	              </div>
-              <button
-                type="button"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-                onClick={() => setIsWalletModalOpen(false)}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {copyMessage && (
         <div className="fixed right-6 top-6 z-50 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.5)]">
