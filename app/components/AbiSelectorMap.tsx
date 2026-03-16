@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { EventFragment, FunctionFragment, Interface } from "ethers";
+import { ErrorFragment, EventFragment, FunctionFragment, Interface } from "ethers";
 
 type SavedAbi = { name: string; abi: string };
 
@@ -15,6 +15,12 @@ type TopicEntry = {
   name: string;
   signature: string;
   topic0: string;
+};
+
+type ErrorEntry = {
+  name: string;
+  signature: string;
+  selector: string;
 };
 
 const ABI_LIST_KEY = "abiList";
@@ -74,6 +80,7 @@ const AbiSelectorMap = () => {
   const [abi, setAbi] = useState("");
   const [functionQuery, setFunctionQuery] = useState("");
   const [eventQuery, setEventQuery] = useState("");
+  const [errorQuery, setErrorQuery] = useState("");
 
   useEffect(() => {
     const savedAbiList = safeJsonParse<Array<SavedAbi>>(
@@ -108,11 +115,12 @@ const AbiSelectorMap = () => {
     localStorage.setItem(CURRENT_ABI_KEY, selected.abi);
   };
 
-  const { functionEntries, eventEntries, errorMessage } = useMemo(() => {
+  const { functionEntries, eventEntries, errorEntries, errorMessage } = useMemo(() => {
     if (!abi.trim()) {
       return {
         functionEntries: [] as SelectorEntry[],
         eventEntries: [] as TopicEntry[],
+        errorEntries: [] as ErrorEntry[],
         errorMessage: "请先选择 ABI",
       };
     }
@@ -122,6 +130,7 @@ const AbiSelectorMap = () => {
       return {
         functionEntries: [] as SelectorEntry[],
         eventEntries: [] as TopicEntry[],
+        errorEntries: [] as ErrorEntry[],
         errorMessage: resolved.error,
       };
     }
@@ -144,15 +153,25 @@ const AbiSelectorMap = () => {
           topic0: fragment.topicHash,
         }));
 
+      const errorEntries = iface.fragments
+        .filter((fragment): fragment is ErrorFragment => fragment.type === "error")
+        .map((fragment) => ({
+          name: fragment.name,
+          signature: fragment.format("sighash"),
+          selector: fragment.selector,
+        }));
+
       return {
         functionEntries,
         eventEntries,
+        errorEntries,
         errorMessage: "",
       };
     } catch (error) {
       return {
         functionEntries: [] as SelectorEntry[],
         eventEntries: [] as TopicEntry[],
+        errorEntries: [] as ErrorEntry[],
         errorMessage: "ABI 解析失败：" + (error as Error).message,
       };
     }
@@ -186,6 +205,20 @@ const AbiSelectorMap = () => {
     });
   }, [eventEntries, eventQuery]);
 
+  const filteredErrorEntries = useMemo(() => {
+    const query = errorQuery.trim().toLowerCase();
+    if (!query) {
+      return errorEntries;
+    }
+    return errorEntries.filter((entry) => {
+      return (
+        entry.name.toLowerCase().includes(query) ||
+        entry.signature.toLowerCase().includes(query) ||
+        entry.selector.toLowerCase().includes(query)
+      );
+    });
+  }, [errorEntries, errorQuery]);
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
       <div className="fade-up space-y-3">
@@ -193,10 +226,10 @@ const AbiSelectorMap = () => {
           EVM Toolkit
         </span>
         <h1 className="text-3xl font-semibold text-slate-900 md:text-4xl">
-          Selector 与 Topic0 对照
+          Selector、Topic0 与 Error 对照
         </h1>
         <p className="max-w-2xl text-sm text-slate-600 md:text-base">
-          选择已保存的 ABI，快速查看全部方法的 selector 与事件的 topic0。
+          选择已保存的 ABI，快速查看全部方法的 selector、事件的 topic0 与自定义 error 的 selector。
         </p>
       </div>
 
@@ -352,6 +385,64 @@ const AbiSelectorMap = () => {
                       </td>
                       <td className="px-3 py-3 font-mono text-xs text-slate-700">
                         {entry.topic0}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">自定义 Error</h2>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={errorQuery}
+                onChange={(event) => setErrorQuery(event.target.value)}
+                placeholder="搜索错误/签名/selector"
+                className="w-56 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+              />
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
+                {filteredErrorEntries.length} 个
+              </span>
+            </div>
+          </div>
+          {errorMessage ? (
+            <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {errorMessage}
+            </div>
+          ) : errorEntries.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+              当前 ABI 未包含自定义 error 定义。
+            </div>
+          ) : filteredErrorEntries.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+              未找到匹配的 error selector。
+            </div>
+          ) : (
+            <div className="max-h-80 overflow-y-auto overflow-x-auto">
+              <table className="min-w-full text-left text-sm text-slate-600">
+                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2">Error</th>
+                    <th className="px-3 py-2">签名</th>
+                    <th className="px-3 py-2">Selector</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredErrorEntries.map((entry, index) => (
+                    <tr key={`${entry.signature}-${index}`} className="text-slate-600">
+                      <td className="px-3 py-3 font-medium text-slate-700">
+                        {entry.name}
+                      </td>
+                      <td className="px-3 py-3 font-mono text-xs text-slate-500">
+                        {entry.signature}
+                      </td>
+                      <td className="px-3 py-3 font-mono text-xs text-slate-700">
+                        {entry.selector}
                       </td>
                     </tr>
                   ))}
