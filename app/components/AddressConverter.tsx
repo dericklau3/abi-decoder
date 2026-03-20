@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { getAddress, toUtf8String } from "ethers";
 
-const MAX_UINT256 = (1n << 256n) - 1n;
+const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
 
 const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
