@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { getAddress, toUtf8String } from "ethers";
 
+const MAX_UINT256 = (1n << 256n) - 1n;
+
 const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -20,6 +22,7 @@ const normalizeHexInput = (value: string) => {
 };
 
 const isValidHex = (value: string) => /^[0-9a-fA-F]*$/.test(value);
+const isValidDecimal = (value: string) => /^\d+$/.test(value);
 
 const AddressConverter = () => {
   const [addressInput, setAddressInput] = useState("");
@@ -29,6 +32,12 @@ const AddressConverter = () => {
   const [bytesInput, setBytesInput] = useState("");
   const [stringOutput, setStringOutput] = useState("");
   const [bytesError, setBytesError] = useState("");
+  const [decimalInput, setDecimalInput] = useState("");
+  const [bytes32HexOutput, setBytes32HexOutput] = useState("");
+  const [decimalToHexError, setDecimalToHexError] = useState("");
+  const [bytes32HexInput, setBytes32HexInput] = useState("");
+  const [decimalOutput, setDecimalOutput] = useState("");
+  const [hexToDecimalError, setHexToDecimalError] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
 
   const convertAddress = (value: string) => {
@@ -88,6 +97,61 @@ const AddressConverter = () => {
     } catch (err) {
       setBytesError("无法解析为 UTF-8 字符串");
       setStringOutput("");
+    }
+  };
+
+  const convertDecimalToBytes32 = (value: string) => {
+    setDecimalToHexError("");
+    setCopyMessage("");
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setBytes32HexOutput("");
+      return;
+    }
+    if (!isValidDecimal(trimmed)) {
+      setDecimalToHexError("请输入有效的十进制非负整数");
+      setBytes32HexOutput("");
+      return;
+    }
+    try {
+      const decimal = BigInt(trimmed);
+      if (decimal > MAX_UINT256) {
+        setDecimalToHexError("数值超出 uint256 / bytes32 可表示范围");
+        setBytes32HexOutput("");
+        return;
+      }
+      setBytes32HexOutput(`0x${decimal.toString(16).padStart(64, "0")}`);
+    } catch {
+      setDecimalToHexError("十进制转换失败");
+      setBytes32HexOutput("");
+    }
+  };
+
+  const convertBytes32ToDecimal = (value: string) => {
+    setHexToDecimalError("");
+    setCopyMessage("");
+    const normalized = normalizeHexInput(value);
+    if (!normalized) {
+      setDecimalOutput("");
+      return;
+    }
+    const hexBody = normalized.slice(2);
+    if (!isValidHex(hexBody)) {
+      setHexToDecimalError("请输入有效的十六进制");
+      setDecimalOutput("");
+      return;
+    }
+    if (hexBody.length > 64) {
+      setHexToDecimalError("Hex 长度不能超过 bytes32（64 个 hex 字符）");
+      setDecimalOutput("");
+      return;
+    }
+    try {
+      const paddedHex = hexBody.padStart(64, "0");
+      setDecimalOutput(BigInt(`0x${paddedHex}`).toString(10));
+    } catch {
+      setHexToDecimalError("bytes32 转十进制失败");
+      setDecimalOutput("");
     }
   };
 
@@ -270,6 +334,136 @@ const AddressConverter = () => {
             {bytesError}
           </div>
         )}
+      </section>
+
+      <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">十进制 / 16 进制互转</h2>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
+            bytes32 Hex
+          </span>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                十进制输入
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                value={decimalInput}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setDecimalInput(nextValue);
+                  convertDecimalToBytes32(nextValue);
+                }}
+                placeholder="请输入十进制非负整数"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                bytes32 Hex 输出
+              </label>
+              <div className="flex gap-2">
+                <textarea
+                  readOnly
+                  className="min-h-[88px] w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700 break-all"
+                  value={bytes32HexOutput}
+                  placeholder="0x + 64 个 hex 字符"
+                />
+                <button
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                  onClick={() => handleCopy(bytes32HexOutput, "bytes32 Hex 输出")}
+                  aria-label="复制 bytes32 Hex 输出"
+                  title="复制"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                    />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {decimalToHexError && (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {decimalToHexError}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                bytes32 Hex 输入
+              </label>
+              <input
+                type="text"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                value={bytes32HexInput}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setBytes32HexInput(nextValue);
+                  convertBytes32ToDecimal(nextValue);
+                }}
+                placeholder="请输入 0x...（不足 64 位会按 bytes32 左侧补零）"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                十进制输出
+              </label>
+              <div className="flex gap-2">
+                <textarea
+                  readOnly
+                  className="min-h-[88px] w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 break-all"
+                  value={decimalOutput}
+                  placeholder="解析后的十进制整数"
+                />
+                <button
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                  onClick={() => handleCopy(decimalOutput, "十进制输出")}
+                  aria-label="复制十进制输出"
+                  title="复制"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                    />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {hexToDecimalError && (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {hexToDecimalError}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
     </div>
   );
