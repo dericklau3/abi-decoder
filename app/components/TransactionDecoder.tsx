@@ -48,7 +48,6 @@ const TransactionDecoder = () => {
   const [abi, setAbi] = useState('');
   const [selectedAbiIndex, setSelectedAbiIndex] = useState<number | null>(null);
   const [txData, setTxData] = useState('');
-  const [functionName, setFunctionName] = useState('');
   const [decodedData, setDecodedData] = useState<any>(null);
   const [error, setError] = useState('');
   const [constructorData, setConstructorData] = useState('');
@@ -133,9 +132,8 @@ const TransactionDecoder = () => {
         setError('请正确填写合约 bytecode (0x...)');
         return;
       }
-      // viem 的 decodeDeployData 要求 data、abi、bytecode
+      // 这里要求传入完整部署 data，并额外提供 creation bytecode 用于剥离 constructor 参数。
       const dataHex = normalizeHex(constructorData) as `0x${string}`;
-      // 仅解码参数时，bytecode 可传空字符串
       const decoded = decodeDeployData({ abi: abiJson, data: dataHex, bytecode: bytecode as `0x${string}` });
       setDecodedConstructor(decoded.args);
     } catch (err) {
@@ -179,13 +177,17 @@ const TransactionDecoder = () => {
 
   const clearInputs = () => {
     setAbi('');
-    setFunctionName('');
     setTxData('');
     setDecodedData(null);
+    setConstructorData('');
+    setBytecode('');
+    setDecodedConstructor(null);
     setEventTopics('');
     setEventData('');
     setDecodedEvent(null);
     setError('');
+    setSelectedAbiIndex(null);
+    localStorage.removeItem(CURRENT_ABI_KEY);
   };
 
   return (
@@ -287,29 +289,23 @@ const TransactionDecoder = () => {
 
             {activePanel === 'tx' && (
               <div className="mt-6 space-y-6">
-                <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">data</label>
+                  <input
+                    type="text"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                    value={txData}
+                    onChange={(e) => setTxData(e.target.value)}
+                    placeholder="请输入交易数据 (0x...)"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-3">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">函数名称</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                      value={functionName}
-                      onChange={(e) => setFunctionName(e.target.value)}
-                      placeholder="请输入要调用的函数名称（可选）"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">data</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                      value={txData}
-                      onChange={(e) => setTxData(e.target.value)}
-                      placeholder="请输入交易数据 (0x...)"
-                    />
+                    <p className="text-xs text-slate-500">
+                      根据 ABI 自动匹配 selector 并解析，无需额外填写函数名。
+                    </p>
                   </div>
                 </div>
-
                 <div className="flex flex-wrap gap-3">
                   <button
                     className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
@@ -360,14 +356,14 @@ const TransactionDecoder = () => {
               <div className="mt-6 space-y-4">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Constructor 参数数据 (CreationCode + constructorArgs bytecode)
+                    完整部署 data
                   </label>
                   <input
                     type="text"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                     value={constructorData}
                     onChange={(e) => setConstructorData(e.target.value)}
-                    placeholder="请输入合约部署时的 constructor 参数 data (0x...)"
+                    placeholder="请输入部署交易的完整 data (creation bytecode + constructor args)"
                   />
                 </div>
                 <div>
@@ -377,9 +373,12 @@ const TransactionDecoder = () => {
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                     value={bytecode}
                     onChange={(e) => setBytecode(e.target.value)}
-                    placeholder="请输入合约 Bytecode (0x...)"
+                    placeholder="请输入与上方部署 data 对应的 creation bytecode"
                   />
                 </div>
+                <p className="text-xs text-slate-500">
+                  该模式需要同时提供完整部署 data 与原始 creation bytecode，才能准确剥离 constructor 参数。
+                </p>
                 <button
                   className="w-fit rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-500"
                   onClick={decodeConstructor}

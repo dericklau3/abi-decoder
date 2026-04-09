@@ -1,7 +1,14 @@
 "use client";
 
 import { BrowserProvider } from "ethers";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 export type InjectedProvider = {
   on?: (event: string, handler: (...args: any[]) => void) => void;
@@ -122,7 +129,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [eip6963Providers, setEip6963Providers] = useState<EIP6963ProviderDetail[]>([]);
 
-  const getInjectedProviders = () => {
+  const getInjectedProviders = useCallback(() => {
     if (typeof window === "undefined") {
       return [];
     }
@@ -136,9 +143,9 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       window.okxwallet?.ethereum as unknown as InjectedProvider | undefined,
       ethereum,
     ]).filter((item) => typeof item.request === "function");
-  };
+  }, []);
 
-  const getOkxProvider = () => {
+  const getOkxProvider = useCallback(() => {
     if (typeof window === "undefined") {
       return null;
     }
@@ -157,9 +164,9 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
           candidate.isOKExWallet,
       ) ?? null
     );
-  };
+  }, [getInjectedProviders]);
 
-  const getMetaMaskProvider = () => {
+  const getMetaMaskProvider = useCallback(() => {
     if (typeof window === "undefined") {
       return null;
     }
@@ -185,13 +192,13 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
         return true;
       }) ?? null
     );
-  };
+  }, [getInjectedProviders, getOkxProvider]);
 
-  const getDefaultProvider = () =>
+  const getDefaultProvider = useCallback(() =>
     getMetaMaskProvider() ??
     getOkxProvider() ??
     (window.ethereum as unknown as InjectedProvider | undefined) ??
-    (window.okxwallet as unknown as InjectedProvider | undefined);
+    (window.okxwallet as unknown as InjectedProvider | undefined), [getMetaMaskProvider, getOkxProvider]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -261,7 +268,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [injected]);
 
-  const connectWallet = async (injectedOverride?: InjectedProvider | null) => {
+  const connectWallet = useCallback(async (injectedOverride?: InjectedProvider | null) => {
     setWalletError("");
     const selected = injectedOverride ?? getDefaultProvider();
     if (!selected) {
@@ -287,9 +294,9 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     } finally {
       setIsConnecting(false);
     }
-  };
+  }, [getDefaultProvider]);
 
-  const disconnectWallet = () => {
+  const disconnectWallet = useCallback(() => {
     setProvider(null);
     setAccount("");
     setNetworkName("");
@@ -297,7 +304,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     setInjected(null);
     setWalletError("");
     setIsWalletModalOpen(false);
-  };
+  }, []);
 
   const sortedEip6963Providers = useMemo(() => {
     return [...eip6963Providers].sort((a, b) =>
@@ -344,17 +351,14 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       return false;
     }
     return Boolean(getOkxProvider());
-  }, []);
+  }, [getOkxProvider]);
 
   const metaMaskInstalled = useMemo(() => {
     if (typeof window === "undefined") {
       return false;
     }
-    if (!hasDiscoveredMetaMask && window.okxwallet) {
-      return false;
-    }
     return Boolean(getMetaMaskProvider());
-  }, [hasDiscoveredMetaMask]);
+  }, [getMetaMaskProvider]);
 
   const value = useMemo<WalletContextValue>(
     () => ({
@@ -392,6 +396,10 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       hasDiscoveredMetaMask,
       okxInstalled,
       metaMaskInstalled,
+      connectWallet,
+      disconnectWallet,
+      getOkxProvider,
+      getMetaMaskProvider,
     ],
   );
 

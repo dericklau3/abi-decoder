@@ -10,6 +10,11 @@ import {
   parseEther,
 } from "ethers";
 import { useWallet } from "./wallet/WalletProvider";
+import {
+  extractContractErrorMessage,
+  normalizeAddressInput,
+  parseArgumentValue,
+} from "./contract-interaction-utils";
 
 type SavedAbi = { name: string; abi: string };
 
@@ -23,14 +28,6 @@ type FunctionInfo = {
 
 const ABI_LIST_KEY = "abiList";
 const CURRENT_ABI_KEY = "currentAbi";
-
-const normalizeAddressInput = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
-};
 
 const safeJsonParse = <T,>(value: string, fallback: T): T => {
   try {
@@ -54,27 +51,6 @@ const parseAbiJson = (value: string) => {
   } catch (err) {
     return { abi: null, error: "ABI JSON 解析失败" };
   }
-};
-
-const parseInputValue = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  if (trimmed === "true") {
-    return true;
-  }
-  if (trimmed === "false") {
-    return false;
-  }
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return trimmed;
-    }
-  }
-  return trimmed;
 };
 
 const formatResult = (value: unknown) => {
@@ -308,16 +284,23 @@ const ContractInteractor = () => {
     try {
       setIsLoading(true);
       const checksummed = getAddress(normalizedAddress);
+      const code = await provider.getCode(checksummed);
+      if (code === "0x") {
+        throw new Error("当前链上未找到该合约地址，请检查合约地址与钱包网络是否匹配");
+      }
       const contract = new Contract(checksummed, abi, provider);
       const currentInputs = argInputs[selectedFunction.signature] ?? [];
       const args = selectedFunction.inputs.map((_, index) =>
-        parseInputValue(currentInputs[index] ?? ""),
+        parseArgumentValue(
+          selectedFunction.inputs[index]?.type ?? "string",
+          currentInputs[index] ?? "",
+        ),
       );
       const fn = contract.getFunction(selectedFunction.signature);
       const result = await fn(...args);
       setResultOutput(formatResult(result));
     } catch (err) {
-      setErrorMessage("调用失败：" + (err as Error).message);
+      setErrorMessage("调用失败：" + extractContractErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -349,10 +332,17 @@ const ContractInteractor = () => {
       setIsLoading(true);
       const signer = await provider.getSigner();
       const checksummed = getAddress(normalizedAddress);
+      const code = await provider.getCode(checksummed);
+      if (code === "0x") {
+        throw new Error("当前链上未找到该合约地址，请检查合约地址与钱包网络是否匹配");
+      }
       const contract = new Contract(checksummed, abi, signer);
       const currentInputs = argInputs[selectedFunction.signature] ?? [];
       const args = selectedFunction.inputs.map((_, index) =>
-        parseInputValue(currentInputs[index] ?? ""),
+        parseArgumentValue(
+          selectedFunction.inputs[index]?.type ?? "string",
+          currentInputs[index] ?? "",
+        ),
       );
       const fn = contract.getFunction(selectedFunction.signature);
       const overrides =
@@ -363,7 +353,7 @@ const ContractInteractor = () => {
       setTxHash(tx.hash);
       setResultOutput("");
     } catch (err) {
-      setErrorMessage("交易发送失败：" + (err as Error).message);
+      setErrorMessage("交易发送失败：" + extractContractErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
