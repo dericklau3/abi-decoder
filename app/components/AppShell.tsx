@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWallet } from "./wallet/WalletProvider";
+import { getWalletDiscoveryHint } from "./wallet/wallet-display-utils";
 
 type NavItem = {
   name: string;
@@ -31,17 +32,12 @@ const AppShell = ({ children }: { children: React.ReactNode }) => {
     walletError,
     isConnecting,
     sortedEip6963Providers,
-    hasDiscoveredOkx,
-    hasDiscoveredMetaMask,
-    okxInstalled,
-    metaMaskInstalled,
     openWalletModal,
     closeWalletModal,
     connectWallet,
     disconnectWallet,
-    getOkxProvider,
-    getMetaMaskProvider,
   } = useWallet();
+  const walletDiscoveryHint = getWalletDiscoveryHint(sortedEip6963Providers.length);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.08),_transparent_55%),linear-gradient(180deg,_#f8fafc,_#eef2ff_40%,_#f8fafc_100%)]">
@@ -194,49 +190,11 @@ const AppShell = ({ children }: { children: React.ReactNode }) => {
                 </div>
               )}
 
-              <div className="pt-2 space-y-3">
-                {!hasDiscoveredOkx && (
-                  <button
-                    type="button"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
-                    onClick={() => {
-                      if (!okxInstalled) {
-                        return;
-                      }
-                      connectWallet(getOkxProvider());
-                    }}
-                    disabled={!okxInstalled || isConnecting}
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span>OKX Wallet</span>
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
-                        {okxInstalled ? "已安装" : "未安装"}
-                      </span>
-                    </span>
-                  </button>
-                )}
-
-                {!hasDiscoveredMetaMask && (
-                  <button
-                    type="button"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
-                    onClick={() => {
-                      if (!metaMaskInstalled) {
-                        return;
-                      }
-                      connectWallet(getMetaMaskProvider());
-                    }}
-                    disabled={!metaMaskInstalled || isConnecting}
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span>MetaMask</span>
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
-                        {metaMaskInstalled ? "已安装" : "未安装"}
-                      </span>
-                    </span>
-                  </button>
-                )}
-              </div>
+              {walletDiscoveryHint && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {walletDiscoveryHint}
+                </div>
+              )}
 
               {walletError && (
                 <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">

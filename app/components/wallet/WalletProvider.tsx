@@ -9,18 +9,12 @@ import {
   useMemo,
   useState,
 } from "react";
+import { shouldRequestWalletDiscovery } from "./wallet-discovery-utils";
 
 export type InjectedProvider = {
   on?: (event: string, handler: (...args: any[]) => void) => void;
   removeListener?: (event: string, handler: (...args: any[]) => void) => void;
   request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-  providers?: InjectedProvider[];
-  isMetaMask?: boolean;
-  isCoinbaseWallet?: boolean;
-  isBraveWallet?: boolean;
-  isOkxWallet?: boolean;
-  isOKXWallet?: boolean;
-  isOKExWallet?: boolean;
 };
 
 type EIP6963ProviderInfo = {
@@ -48,57 +42,13 @@ type WalletContextValue = {
   walletError: string;
   isConnecting: boolean;
   sortedEip6963Providers: EIP6963ProviderDetail[];
-  hasDiscoveredOkx: boolean;
-  hasDiscoveredMetaMask: boolean;
-  okxInstalled: boolean;
-  metaMaskInstalled: boolean;
   openWalletModal: () => void;
   closeWalletModal: () => void;
   connectWallet: (injectedOverride?: InjectedProvider | null) => Promise<void>;
   disconnectWallet: () => void;
-  getOkxProvider: () => InjectedProvider | null;
-  getMetaMaskProvider: () => InjectedProvider | null;
 };
-
-declare global {
-  interface Window {
-    ethereum?: {
-      on?: (event: string, handler: (...args: any[]) => void) => void;
-      removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-      request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-      providers?: unknown[];
-      isMetaMask?: boolean;
-      isCoinbaseWallet?: boolean;
-    };
-    okxwallet?: {
-      ethereum?: {
-        on?: (event: string, handler: (...args: any[]) => void) => void;
-        removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-        request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-        isOkxWallet?: boolean;
-      };
-      on?: (event: string, handler: (...args: any[]) => void) => void;
-      removeListener?: (event: string, handler: (...args: any[]) => void) => void;
-      request?: (payload: { method: string; params?: unknown[] }) => Promise<unknown>;
-      isOkxWallet?: boolean;
-    };
-  }
-}
 
 const WalletContext = createContext<WalletContextValue | null>(null);
-
-const uniqProviders = (items: Array<InjectedProvider | null | undefined>) => {
-  const seen = new Set<InjectedProvider>();
-  const result: InjectedProvider[] = [];
-  items.forEach((item) => {
-    if (!item || seen.has(item)) {
-      return;
-    }
-    seen.add(item);
-    result.push(item);
-  });
-  return result;
-};
 
 const parseChainId = (value?: string | number) => {
   if (value === undefined || value === null) {
@@ -128,77 +78,18 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const [walletError, setWalletError] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [eip6963Providers, setEip6963Providers] = useState<EIP6963ProviderDetail[]>([]);
+  const [hasRequestedDiscovery, setHasRequestedDiscovery] = useState(false);
 
-  const getInjectedProviders = useCallback(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-    const ethereum = window.ethereum as unknown as InjectedProvider | undefined;
-    const ethereumProviders = Array.isArray(ethereum?.providers)
-      ? ethereum?.providers
-      : [];
-    return uniqProviders([
-      ...ethereumProviders,
-      window.okxwallet as unknown as InjectedProvider | undefined,
-      window.okxwallet?.ethereum as unknown as InjectedProvider | undefined,
-      ethereum,
-    ]).filter((item) => typeof item.request === "function");
-  }, []);
-
-  const getOkxProvider = useCallback(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    if (window.okxwallet?.request) {
-      return window.okxwallet;
-    }
-    if (window.okxwallet?.ethereum?.request) {
-      return window.okxwallet.ethereum;
-    }
-    const candidates = getInjectedProviders();
-    return (
-      candidates.find(
-        (candidate) =>
-          candidate.isOkxWallet ||
-          candidate.isOKXWallet ||
-          candidate.isOKExWallet,
-      ) ?? null
+  const sortedEip6963Providers = useMemo(() => {
+    return [...eip6963Providers].sort((a, b) =>
+      (a.info.name || "").localeCompare(b.info.name || ""),
     );
-  }, [getInjectedProviders]);
+  }, [eip6963Providers]);
 
-  const getMetaMaskProvider = useCallback(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    const candidates = getInjectedProviders();
-    const okx = getOkxProvider();
-    return (
-      candidates.find((candidate) => {
-        if (!candidate.isMetaMask) {
-          return false;
-        }
-        if (candidate.isBraveWallet) {
-          return false;
-        }
-        if (candidate.isCoinbaseWallet) {
-          return false;
-        }
-        if (candidate.isOkxWallet || candidate.isOKXWallet || candidate.isOKExWallet) {
-          return false;
-        }
-        if (okx && candidate === okx) {
-          return false;
-        }
-        return true;
-      }) ?? null
-    );
-  }, [getInjectedProviders, getOkxProvider]);
-
-  const getDefaultProvider = useCallback(() =>
-    getMetaMaskProvider() ??
-    getOkxProvider() ??
-    (window.ethereum as unknown as InjectedProvider | undefined) ??
-    (window.okxwallet as unknown as InjectedProvider | undefined), [getMetaMaskProvider, getOkxProvider]);
+  const getDefaultProvider = useCallback(
+    () => sortedEip6963Providers[0]?.provider ?? null,
+    [sortedEip6963Providers],
+  );
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -215,7 +106,6 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     window.addEventListener("eip6963:announceProvider", handler as EventListener);
-    window.dispatchEvent(new Event("eip6963:requestProvider"));
 
     return () => {
       window.removeEventListener(
@@ -224,6 +114,21 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !shouldRequestWalletDiscovery({
+        isWalletModalOpen,
+        hasRequestedDiscovery,
+      })
+    ) {
+      return;
+    }
+
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    setHasRequestedDiscovery(true);
+  }, [hasRequestedDiscovery, isWalletModalOpen]);
 
   useEffect(() => {
     if (!injected?.on) {
@@ -306,60 +211,6 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     setIsWalletModalOpen(false);
   }, []);
 
-  const sortedEip6963Providers = useMemo(() => {
-    return [...eip6963Providers].sort((a, b) =>
-      (a.info.name || "").localeCompare(b.info.name || ""),
-    );
-  }, [eip6963Providers]);
-
-  const discoveredRdnsSet = useMemo(() => {
-    return new Set(
-      sortedEip6963Providers
-        .map((item) => (item.info.rdns || "").toLowerCase())
-        .filter(Boolean),
-    );
-  }, [sortedEip6963Providers]);
-
-  const hasDiscoveredOkx = useMemo(() => {
-    if (sortedEip6963Providers.some((item) => /okx/i.test(item.info.name || ""))) {
-      return true;
-    }
-    for (const rdns of discoveredRdnsSet) {
-      if (rdns.includes("okx")) {
-        return true;
-      }
-    }
-    return false;
-  }, [sortedEip6963Providers, discoveredRdnsSet]);
-
-  const hasDiscoveredMetaMask = useMemo(() => {
-    if (
-      sortedEip6963Providers.some((item) => /metamask/i.test(item.info.name || ""))
-    ) {
-      return true;
-    }
-    for (const rdns of discoveredRdnsSet) {
-      if (rdns.includes("metamask")) {
-        return true;
-      }
-    }
-    return false;
-  }, [sortedEip6963Providers, discoveredRdnsSet]);
-
-  const okxInstalled = useMemo(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return Boolean(getOkxProvider());
-  }, [getOkxProvider]);
-
-  const metaMaskInstalled = useMemo(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return Boolean(getMetaMaskProvider());
-  }, [getMetaMaskProvider]);
-
   const value = useMemo<WalletContextValue>(
     () => ({
       provider,
@@ -371,16 +222,14 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       walletError,
       isConnecting,
       sortedEip6963Providers,
-      hasDiscoveredOkx,
-      hasDiscoveredMetaMask,
-      okxInstalled,
-      metaMaskInstalled,
-      openWalletModal: () => setIsWalletModalOpen(true),
+      openWalletModal: () => {
+        setWalletError("");
+        setHasRequestedDiscovery(false);
+        setIsWalletModalOpen(true);
+      },
       closeWalletModal: () => setIsWalletModalOpen(false),
       connectWallet,
       disconnectWallet,
-      getOkxProvider,
-      getMetaMaskProvider,
     }),
     [
       provider,
@@ -392,14 +241,8 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       walletError,
       isConnecting,
       sortedEip6963Providers,
-      hasDiscoveredOkx,
-      hasDiscoveredMetaMask,
-      okxInstalled,
-      metaMaskInstalled,
       connectWallet,
       disconnectWallet,
-      getOkxProvider,
-      getMetaMaskProvider,
     ],
   );
 
