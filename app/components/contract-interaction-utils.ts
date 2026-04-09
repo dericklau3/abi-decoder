@@ -126,6 +126,23 @@ const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
 export const parseArgumentValue = (type: string, value: string) =>
   coerceByParamType(ParamType.from(type), value);
 
+export const appendTransactionOverrides = (
+  args: unknown[],
+  stateMutability: string,
+  payableValue: string,
+) => {
+  if (stateMutability !== "payable") {
+    return args;
+  }
+
+  const trimmedPayableValue = payableValue.trim();
+  if (!trimmedPayableValue) {
+    return args;
+  }
+
+  return [...args, { value: trimmedPayableValue }];
+};
+
 export const extractContractErrorMessage = (error: unknown): string => {
   const queue: unknown[] = [error];
   const seen = new Set<unknown>();

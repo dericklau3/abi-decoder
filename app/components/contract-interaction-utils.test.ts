@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  appendTransactionOverrides,
   extractContractErrorMessage,
   normalizeAddressInput,
   parseArgumentValue,
@@ -35,5 +36,24 @@ describe("contract-interaction-utils", () => {
 
   test("normalizes addresses by adding missing prefix", () => {
     expect(normalizeAddressInput("abc")).toBe("0xabc");
+  });
+
+  test("does not append overrides for nonpayable functions", () => {
+    expect(appendTransactionOverrides([1n, "hello"], "nonpayable", "0.01")).toEqual([
+      1n,
+      "hello",
+    ]);
+  });
+
+  test("does not append overrides when payable value is empty", () => {
+    expect(appendTransactionOverrides(["0xabc"], "payable", "   ")).toEqual([
+      "0xabc",
+    ]);
+  });
+
+  test("appends value override only for payable functions with value", () => {
+    expect(appendTransactionOverrides([], "payable", "0.01")).toEqual([
+      { value: "0.01" },
+    ]);
   });
 });

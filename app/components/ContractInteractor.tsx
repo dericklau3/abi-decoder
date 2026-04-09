@@ -11,6 +11,7 @@ import {
 } from "ethers";
 import { useWallet } from "./wallet/WalletProvider";
 import {
+  appendTransactionOverrides,
   extractContractErrorMessage,
   normalizeAddressInput,
   parseArgumentValue,
@@ -86,6 +87,7 @@ const getChainLabel = (name: string, chainId: number | null) => {
 const ContractInteractor = () => {
   const {
     provider: sharedProvider,
+    injected: sharedInjected,
     account: sharedAccount,
     networkName: sharedNetworkName,
     chainId: sharedChainId,
@@ -99,6 +101,7 @@ const ContractInteractor = () => {
   const [argInputs, setArgInputs] = useState<Record<string, string[]>>({});
   const [payableValue, setPayableValue] = useState("");
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
+  const [injected, setInjected] = useState<ReturnType<typeof useWallet>["injected"]>(null);
   const [account, setAccount] = useState("");
   const [networkName, setNetworkName] = useState("");
   const [chainId, setChainId] = useState<number | null>(null);
@@ -110,10 +113,11 @@ const ContractInteractor = () => {
 
   useEffect(() => {
     setProvider(sharedProvider);
+    setInjected(sharedInjected);
     setAccount(sharedAccount);
     setNetworkName(sharedNetworkName);
     setChainId(sharedChainId);
-  }, [sharedProvider, sharedAccount, sharedNetworkName, sharedChainId]);
+  }, [sharedProvider, sharedInjected, sharedAccount, sharedNetworkName, sharedChainId]);
 
   useEffect(() => {
     const savedAbiList = safeJsonParse<Array<SavedAbi>>(
@@ -330,6 +334,9 @@ const ContractInteractor = () => {
     }
     try {
       setIsLoading(true);
+      if (typeof injected?.request === "function") {
+        await injected.request({ method: "eth_requestAccounts" });
+      }
       const signer = await provider.getSigner();
       const checksummed = getAddress(normalizedAddress);
       const code = await provider.getCode(checksummed);
@@ -345,11 +352,19 @@ const ContractInteractor = () => {
         ),
       );
       const fn = contract.getFunction(selectedFunction.signature);
-      const overrides =
-        selectedFunction.stateMutability === "payable" && payableValue.trim()
-          ? { value: parseEther(payableValue.trim()) }
-          : {};
-      const tx = await fn(...args, overrides);
+      const txArgs = appendTransactionOverrides(
+        args,
+        selectedFunction.stateMutability,
+        payableValue,
+      ).map((item) =>
+        typeof item === "object" &&
+        item !== null &&
+        "value" in item &&
+        typeof (item as { value: unknown }).value === "string"
+          ? { value: parseEther((item as { value: string }).value) }
+          : item,
+      );
+      const tx = await fn(...txArgs);
       setTxHash(tx.hash);
       setResultOutput("");
     } catch (err) {
