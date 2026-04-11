@@ -2,27 +2,15 @@
 
 import { useState } from "react";
 import { getAddress, toUtf8String } from "ethers";
-
-const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
-
-const normalizeAddressInput = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
-};
-
-const normalizeHexInput = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
-};
-
-const isValidHex = (value: string) => /^[0-9a-fA-F]*$/.test(value);
-const isValidDecimal = (value: string) => /^\d+$/.test(value);
+import {
+  decodeBase64ToUtf8,
+  encodeUtf8ToBase64,
+  isValidDecimal,
+  isValidHex,
+  MAX_UINT256,
+  normalizeAddressInput,
+  normalizeHexInput,
+} from "./address-converter-utils";
 
 const AddressConverter = () => {
   const [addressInput, setAddressInput] = useState("");
@@ -38,6 +26,12 @@ const AddressConverter = () => {
   const [bytes32HexInput, setBytes32HexInput] = useState("");
   const [decimalOutput, setDecimalOutput] = useState("");
   const [hexToDecimalError, setHexToDecimalError] = useState("");
+  const [base64StringInput, setBase64StringInput] = useState("");
+  const [base64Output, setBase64Output] = useState("");
+  const [base64EncodeError, setBase64EncodeError] = useState("");
+  const [base64Input, setBase64Input] = useState("");
+  const [base64DecodedOutput, setBase64DecodedOutput] = useState("");
+  const [base64DecodeError, setBase64DecodeError] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
 
   const convertAddress = (value: string) => {
@@ -155,6 +149,40 @@ const AddressConverter = () => {
     }
   };
 
+  const convertStringToBase64 = (value: string) => {
+    setBase64EncodeError("");
+    setCopyMessage("");
+    if (!value) {
+      setBase64Output("");
+      return;
+    }
+
+    try {
+      setBase64Output(encodeUtf8ToBase64(value));
+    } catch {
+      setBase64EncodeError("Base64 编码失败");
+      setBase64Output("");
+    }
+  };
+
+  const convertBase64ToString = (value: string) => {
+    setBase64DecodeError("");
+    setCopyMessage("");
+    if (!value.trim()) {
+      setBase64DecodedOutput("");
+      return;
+    }
+
+    try {
+      setBase64DecodedOutput(decodeBase64ToUtf8(value));
+    } catch (error) {
+      setBase64DecodeError(
+        error instanceof Error ? error.message : "Base64 解码失败",
+      );
+      setBase64DecodedOutput("");
+    }
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
       <div className="fade-up space-y-3">
@@ -165,7 +193,7 @@ const AddressConverter = () => {
           转换
         </h1>
         <p className="max-w-2xl text-sm text-slate-600 md:text-base">
-          输入 EOA 地址，转换为校验和格式，并生成可直接粘贴到 Solidity 的写法。
+          集中处理地址、编码与数值格式转换，方便在 EVM 开发和调试时快速复制使用。
         </p>
       </div>
 
@@ -334,6 +362,133 @@ const AddressConverter = () => {
             {bytesError}
           </div>
         )}
+      </section>
+
+      <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Base64 编码 / 解码</h2>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
+            UTF-8 Text
+          </span>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                原始字符串
+              </label>
+              <textarea
+                className="min-h-[96px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                value={base64StringInput}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setBase64StringInput(nextValue);
+                  convertStringToBase64(nextValue);
+                }}
+                placeholder="请输入待编码的 UTF-8 字符串"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Base64 输出
+              </label>
+              <div className="flex gap-2">
+                <textarea
+                  readOnly
+                  className="min-h-[96px] w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700 break-all"
+                  value={base64Output}
+                  placeholder="编码后的 Base64"
+                />
+                <button
+                  className="self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                  onClick={() => handleCopy(base64Output, "Base64 输出")}
+                  aria-label="复制 Base64 输出"
+                  title="复制"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                    />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {base64EncodeError && (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {base64EncodeError}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Base64 输入
+              </label>
+              <textarea
+                className="min-h-[96px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                value={base64Input}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setBase64Input(nextValue);
+                  convertBase64ToString(nextValue);
+                }}
+                placeholder="请输入待解码的 Base64"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                解码字符串
+              </label>
+              <div className="flex gap-2">
+                <textarea
+                  readOnly
+                  className="min-h-[96px] w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                  value={base64DecodedOutput}
+                  placeholder="解码后的 UTF-8 字符串"
+                />
+                <button
+                  className="self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                  onClick={() => handleCopy(base64DecodedOutput, "解码字符串")}
+                  aria-label="复制解码字符串"
+                  title="复制"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                    />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {base64DecodeError && (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {base64DecodeError}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
