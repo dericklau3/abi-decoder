@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  bytes64AddressToHex,
-  bytes64HexToAddress,
-  bytes64HexToDecimal,
-  bytes64HexToText,
-  decimalToBytes64Hex,
+  bytes32AddressToHex,
+  bytes32HexToAddress,
+  bytes32HexToDecimal,
+  bytes32HexToText,
+  decimalToBytes32Hex,
   decodeBase64ToUtf8,
   encodeUtf8ToBase64,
-  textToBytes64Hex,
+  textToBytes32Hex,
 } from "./address-converter-utils";
 
 describe("address-converter-utils", () => {
@@ -32,53 +32,53 @@ describe("address-converter-utils", () => {
     expect(() => decodeBase64ToUtf8("%%%")).toThrow("请输入有效的 Base64");
   });
 
-  test("encodes decimal to bytes64 hex", () => {
-    expect(decimalToBytes64Hex("255")).toBe(`0x${"0".repeat(126)}ff`);
+  test("encodes decimal to bytes32 hex", () => {
+    expect(decimalToBytes32Hex("255")).toBe(`0x${"0".repeat(62)}ff`);
   });
 
-  test("decodes bytes64 hex to decimal", () => {
-    expect(bytes64HexToDecimal(`0x${"0".repeat(126)}ff`)).toBe("255");
+  test("decodes bytes32 hex to decimal", () => {
+    expect(bytes32HexToDecimal(`0x${"0".repeat(62)}ff`)).toBe("255");
   });
 
-  test("encodes text to bytes64 hex with zero padding", () => {
-    expect(textToBytes64Hex("hello")).toBe(
-      `0x68656c6c6f${"0".repeat(118)}`,
+  test("encodes text to bytes32 hex with zero padding", () => {
+    expect(textToBytes32Hex("hello")).toBe(
+      `0x68656c6c6f${"0".repeat(54)}`,
     );
   });
 
-  test("decodes bytes64 hex to text by trimming trailing zeros", () => {
-    expect(bytes64HexToText(`0x68656c6c6f${"0".repeat(118)}`)).toBe("hello");
+  test("decodes bytes32 hex to text by trimming trailing zeros", () => {
+    expect(bytes32HexToText(`0x68656c6c6f${"0".repeat(54)}`)).toBe("hello");
   });
 
-  test("encodes address to bytes64 hex with left padding", () => {
+  test("encodes address to bytes32 hex with left padding", () => {
     expect(
-      bytes64AddressToHex("0x000000000000000000000000000000000000dEaD"),
-    ).toBe(`0x${"0".repeat(88)}000000000000000000000000000000000000dead`);
+      bytes32AddressToHex("0x000000000000000000000000000000000000dEaD"),
+    ).toBe(`0x${"0".repeat(24)}000000000000000000000000000000000000dead`);
   });
 
-  test("decodes bytes64 hex to checksum address", () => {
+  test("decodes bytes32 hex to checksum address", () => {
     expect(
-      bytes64HexToAddress(
-        `0x${"0".repeat(88)}000000000000000000000000000000000000dead`,
+      bytes32HexToAddress(
+        `0x${"0".repeat(24)}000000000000000000000000000000000000dead`,
       ),
     ).toBe("0x000000000000000000000000000000000000dEaD");
   });
 
-  test("rejects text input longer than 64 bytes", () => {
-    expect(() => textToBytes64Hex("a".repeat(65))).toThrow(
-      "UTF-8 字节长度不能超过 64",
+  test("rejects text input longer than 32 bytes", () => {
+    expect(() => textToBytes32Hex("a".repeat(33))).toThrow(
+      "UTF-8 字节长度不能超过 32",
     );
   });
 
-  test("rejects bytes64 input that is too long for decimal decoding", () => {
-    expect(() => bytes64HexToDecimal(`0x${"1".repeat(130)}`)).toThrow(
-      "Hex 长度必须等于 bytes64（128 个 hex 字符）",
+  test("rejects bytes32 input that is too long for decimal decoding", () => {
+    expect(() => bytes32HexToDecimal(`0x${"1".repeat(66)}`)).toThrow(
+      "Hex 长度必须等于 bytes32（64 个 hex 字符）",
     );
   });
 
-  test("rejects bytes64 input with non-zero prefix for address decoding", () => {
+  test("rejects bytes32 input with non-zero prefix for address decoding", () => {
     expect(() =>
-      bytes64HexToAddress(`0x${"1".repeat(88)}000000000000000000000000000000000000dead`),
-    ).toThrow("该 bytes64 不是有效的地址编码");
+      bytes32HexToAddress(`0x${"1".repeat(24)}000000000000000000000000000000000000dead`),
+    ).toThrow("该 bytes32 不是有效的地址编码");
   });
 });

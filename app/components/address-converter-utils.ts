@@ -4,7 +4,6 @@ const BASE64_PATTERN =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 export const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
-export const MAX_UINT512 = (BigInt(1) << BigInt(512)) - BigInt(1);
 
 export const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
@@ -26,7 +25,7 @@ export const isValidHex = (value: string) => /^[0-9a-fA-F]*$/.test(value);
 
 export const isValidDecimal = (value: string) => /^\d+$/.test(value);
 
-const ensureBytes64Hex = (value: string) => {
+const ensureBytes32Hex = (value: string) => {
   const normalized = normalizeHexInput(value);
   if (!normalized) {
     return "";
@@ -37,8 +36,8 @@ const ensureBytes64Hex = (value: string) => {
     throw new Error("请输入有效的十六进制");
   }
 
-  if (hexBody.length !== 128) {
-    throw new Error("Hex 长度必须等于 bytes64（128 个 hex 字符）");
+  if (hexBody.length !== 64) {
+    throw new Error("Hex 长度必须等于 bytes32（64 个 hex 字符）");
   }
 
   return normalized.toLowerCase();
@@ -78,7 +77,7 @@ export const decodeBase64ToUtf8 = (value: string) => {
   }
 };
 
-export const decimalToBytes64Hex = (value: string) => {
+export const decimalToBytes32Hex = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) {
     return "";
@@ -89,15 +88,15 @@ export const decimalToBytes64Hex = (value: string) => {
   }
 
   const decimal = BigInt(trimmed);
-  if (decimal > MAX_UINT512) {
-    throw new Error("数值超出 bytes64 可表示范围");
+  if (decimal > MAX_UINT256) {
+    throw new Error("数值超出 bytes32 可表示范围");
   }
 
-  return `0x${decimal.toString(16).padStart(128, "0")}`;
+  return `0x${decimal.toString(16).padStart(64, "0")}`;
 };
 
-export const bytes64HexToDecimal = (value: string) => {
-  const normalized = ensureBytes64Hex(value);
+export const bytes32HexToDecimal = (value: string) => {
+  const normalized = ensureBytes32Hex(value);
   if (!normalized) {
     return "";
   }
@@ -105,22 +104,22 @@ export const bytes64HexToDecimal = (value: string) => {
   return BigInt(normalized).toString(10);
 };
 
-export const textToBytes64Hex = (value: string) => {
+export const textToBytes32Hex = (value: string) => {
   if (!value) {
     return "";
   }
 
   const encoded = new TextEncoder().encode(value);
-  if (encoded.length > 64) {
-    throw new Error("UTF-8 字节长度不能超过 64");
+  if (encoded.length > 32) {
+    throw new Error("UTF-8 字节长度不能超过 32");
   }
 
   const hex = Array.from(encoded, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `0x${hex.padEnd(128, "0")}`;
+  return `0x${hex.padEnd(64, "0")}`;
 };
 
-export const bytes64HexToText = (value: string) => {
-  const normalized = ensureBytes64Hex(value);
+export const bytes32HexToText = (value: string) => {
+  const normalized = ensureBytes32Hex(value);
   if (!normalized) {
     return "";
   }
@@ -142,7 +141,7 @@ export const bytes64HexToText = (value: string) => {
   }
 };
 
-export const bytes64AddressToHex = (value: string) => {
+export const bytes32AddressToHex = (value: string) => {
   const normalized = normalizeAddressInput(value);
   if (!normalized) {
     return "";
@@ -153,20 +152,20 @@ export const bytes64AddressToHex = (value: string) => {
     throw new Error("请输入有效的地址");
   }
 
-  return `0x${addressBody.toLowerCase().padStart(128, "0")}`;
+  return `0x${addressBody.toLowerCase().padStart(64, "0")}`;
 };
 
-export const bytes64HexToAddress = (value: string) => {
-  const normalized = ensureBytes64Hex(value);
+export const bytes32HexToAddress = (value: string) => {
+  const normalized = ensureBytes32Hex(value);
   if (!normalized) {
     return "";
   }
 
   const hexBody = normalized.slice(2);
-  const prefix = hexBody.slice(0, 88);
-  const addressBody = hexBody.slice(88);
+  const prefix = hexBody.slice(0, 24);
+  const addressBody = hexBody.slice(24);
   if (!/^0+$/.test(prefix) || !/^[0-9a-f]{40}$/.test(addressBody)) {
-    throw new Error("该 bytes64 不是有效的地址编码");
+    throw new Error("该 bytes32 不是有效的地址编码");
   }
 
   return getAddress(`0x${addressBody}`);
