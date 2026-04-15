@@ -14,6 +14,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { name: "交易解码", href: "/" },
   { name: "转换", href: "/address" },
+  { name: "Time", href: "/time" },
   { name: "JSON 格式化", href: "/json-formatter" },
   { name: "合约地址", href: "/contract-address" },
   { name: "合约交互", href: "/contract-interaction" },

@@ -1,7 +1,10 @@
+import { getAddress } from "ethers";
+
 const BASE64_PATTERN =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 export const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
+export const MAX_UINT512 = (BigInt(1) << BigInt(512)) - BigInt(1);
 
 export const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
@@ -22,6 +25,24 @@ export const normalizeHexInput = (value: string) => {
 export const isValidHex = (value: string) => /^[0-9a-fA-F]*$/.test(value);
 
 export const isValidDecimal = (value: string) => /^\d+$/.test(value);
+
+const ensureBytes64Hex = (value: string) => {
+  const normalized = normalizeHexInput(value);
+  if (!normalized) {
+    return "";
+  }
+
+  const hexBody = normalized.slice(2);
+  if (!isValidHex(hexBody)) {
+    throw new Error("请输入有效的十六进制");
+  }
+
+  if (hexBody.length !== 128) {
+    throw new Error("Hex 长度必须等于 bytes64（128 个 hex 字符）");
+  }
+
+  return normalized.toLowerCase();
+};
 
 const bytesToBinaryString = (bytes: Uint8Array) =>
   Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
@@ -55,4 +76,98 @@ export const decodeBase64ToUtf8 = (value: string) => {
   } catch {
     throw new Error("请输入有效的 Base64");
   }
+};
+
+export const decimalToBytes64Hex = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (!isValidDecimal(trimmed)) {
+    throw new Error("请输入有效的十进制非负整数");
+  }
+
+  const decimal = BigInt(trimmed);
+  if (decimal > MAX_UINT512) {
+    throw new Error("数值超出 bytes64 可表示范围");
+  }
+
+  return `0x${decimal.toString(16).padStart(128, "0")}`;
+};
+
+export const bytes64HexToDecimal = (value: string) => {
+  const normalized = ensureBytes64Hex(value);
+  if (!normalized) {
+    return "";
+  }
+
+  return BigInt(normalized).toString(10);
+};
+
+export const textToBytes64Hex = (value: string) => {
+  if (!value) {
+    return "";
+  }
+
+  const encoded = new TextEncoder().encode(value);
+  if (encoded.length > 64) {
+    throw new Error("UTF-8 字节长度不能超过 64");
+  }
+
+  const hex = Array.from(encoded, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `0x${hex.padEnd(128, "0")}`;
+};
+
+export const bytes64HexToText = (value: string) => {
+  const normalized = ensureBytes64Hex(value);
+  if (!normalized) {
+    return "";
+  }
+
+  const hexBody = normalized.slice(2).replace(/(00)+$/, "");
+  if (!hexBody) {
+    return "";
+  }
+
+  const bytes = Uint8Array.from(
+    hexBody.match(/.{1,2}/g) ?? [],
+    (byte) => Number.parseInt(byte, 16),
+  );
+
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("无法解析为 UTF-8 字符串");
+  }
+};
+
+export const bytes64AddressToHex = (value: string) => {
+  const normalized = normalizeAddressInput(value);
+  if (!normalized) {
+    return "";
+  }
+
+  const addressBody = normalized.slice(2);
+  if (!/^[0-9a-fA-F]{40}$/.test(addressBody)) {
+    throw new Error("请输入有效的地址");
+  }
+
+  return `0x${addressBody.toLowerCase().padStart(128, "0")}`;
+};
+
+export const bytes64HexToAddress = (value: string) => {
+  const normalized = ensureBytes64Hex(value);
+  if (!normalized) {
+    return "";
+  }
+
+  const hexBody = normalized.slice(2);
+  const prefix = hexBody.slice(0, 88);
+  const addressBody = hexBody.slice(88);
+  if (!/^0+$/.test(prefix) || !/^[0-9a-f]{40}$/.test(addressBody)) {
+    throw new Error("该 bytes64 不是有效的地址编码");
+  }
+
+  return getAddress(`0x${addressBody}`);
 };
