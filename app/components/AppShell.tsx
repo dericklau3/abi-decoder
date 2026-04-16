@@ -18,6 +18,7 @@ const navItems: NavItem[] = [
   { name: "JSON 格式化", href: "/json-formatter" },
   { name: "合约地址", href: "/contract-address" },
   { name: "合约交互", href: "/contract-interaction" },
+  { name: "Proxy 查询", href: "/proxy-lookup" },
   { name: "ABI 管理", href: "/abi-manager" },
   { name: "Selector 映射", href: "/abi-selectors" },
 ];
