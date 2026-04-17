@@ -1,4 +1,4 @@
-import { getAddress, ParamType } from "ethers";
+import { getAddress, Interface, ParamType } from "ethers";
 
 const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
@@ -125,6 +125,19 @@ const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
 
 export const parseArgumentValue = (type: string, value: string) =>
   coerceByParamType(ParamType.from(type), value);
+
+export const encodeFunctionCalldata = (
+  abi: any[],
+  signature: string,
+  inputs: Array<{ type: string }>,
+  rawInputs: string[],
+) => {
+  const iface = new Interface(abi);
+  const args = inputs.map((input, index) =>
+    parseArgumentValue(input.type, rawInputs[index] ?? ""),
+  );
+  return iface.encodeFunctionData(signature, args);
+};
 
 export const appendTransactionOverrides = (
   args: unknown[],

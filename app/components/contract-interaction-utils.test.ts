@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   appendTransactionOverrides,
+  encodeFunctionCalldata,
   extractContractErrorMessage,
   normalizeAddressInput,
   parseArgumentValue,
@@ -55,5 +56,23 @@ describe("contract-interaction-utils", () => {
     expect(appendTransactionOverrides([], "payable", "0.01")).toEqual([
       { value: "0.01" },
     ]);
+  });
+
+  test("encodes calldata for a write function with arguments", () => {
+    const abi = ["function setNumber(uint256 newNumber)"];
+
+    expect(
+      encodeFunctionCalldata(abi, "setNumber(uint256)", [{ type: "uint256" }], [
+        "256",
+      ]),
+    ).toBe(
+      "0x3fb5c1cb0000000000000000000000000000000000000000000000000000000000000100",
+    );
+  });
+
+  test("encodes selector-only calldata for a write function without arguments", () => {
+    const abi = ["function increment()"];
+
+    expect(encodeFunctionCalldata(abi, "increment()", [], [])).toBe("0xd09de08a");
   });
 });

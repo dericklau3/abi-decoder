@@ -12,6 +12,7 @@ import {
 import { useWallet } from "./wallet/WalletProvider";
 import {
   appendTransactionOverrides,
+  encodeFunctionCalldata,
   extractContractErrorMessage,
   normalizeAddressInput,
   parseArgumentValue,
@@ -196,6 +197,42 @@ const ContractInteractor = () => {
     [functions, selectedSignature],
   );
 
+  const calldataPreview = useMemo(() => {
+    if (
+      !abi ||
+      !selectedFunction ||
+      selectedFunction.stateMutability === "view" ||
+      selectedFunction.stateMutability === "pure"
+    ) {
+      return { data: "", error: "" };
+    }
+
+    const currentInputs = argInputs[selectedFunction.signature] ?? [];
+    const hasMissingInput = selectedFunction.inputs.some(
+      (_, index) => !(currentInputs[index] ?? "").trim(),
+    );
+    if (hasMissingInput) {
+      return { data: "", error: "填写参数后生成调用 data" };
+    }
+
+    try {
+      return {
+        data: encodeFunctionCalldata(
+          abi,
+          selectedFunction.signature,
+          selectedFunction.inputs,
+          currentInputs,
+        ),
+        error: "",
+      };
+    } catch (err) {
+      return {
+        data: "",
+        error: `参数格式无效，暂不能编码 data：${extractContractErrorMessage(err)}`,
+      };
+    }
+  }, [abi, argInputs, selectedFunction]);
+
   const handleSelectAbi = (indexValue: string) => {
     if (!indexValue) {
       setSelectedAbiIndex(null);
@@ -243,6 +280,19 @@ const ContractInteractor = () => {
     try {
       await navigator.clipboard.writeText(value);
       setCopyMessage(`${label}已复制`);
+    } catch {
+      setCopyMessage("复制失败，请检查浏览器权限");
+    }
+  };
+
+  const handleCopyCalldata = async () => {
+    if (!calldataPreview.data) {
+      setCopyMessage("暂无可复制 data");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(calldataPreview.data);
+      setCopyMessage("调用 data 已复制");
     } catch {
       setCopyMessage("复制失败，请检查浏览器权限");
     }
@@ -775,6 +825,49 @@ const ContractInteractor = () => {
                                 />
                               </div>
                             )}
+
+                            <div className="mt-4">
+                              <div className="mb-2 flex items-center justify-between gap-3">
+                                <label className="block text-sm font-medium text-slate-700">
+                                  调用 data
+                                </label>
+                                <button
+                                  type="button"
+                                  className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                  onClick={handleCopyCalldata}
+                                  disabled={!calldataPreview.data}
+                                  aria-label="复制调用 data"
+                                  title="复制调用 data"
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                                    />
+                                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                                  </svg>
+                                </button>
+                              </div>
+                              {calldataPreview.data ? (
+                                <textarea
+                                  readOnly
+                                  className="min-h-[112px] w-full resize-y break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700"
+                                  value={calldataPreview.data}
+                                />
+                              ) : (
+                                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                                  {calldataPreview.error || "选择写入函数后生成调用 data"}
+                                </div>
+                              )}
+                            </div>
 
                             <div className="mt-4 flex flex-wrap gap-3">
                               <button
