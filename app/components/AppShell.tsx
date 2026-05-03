@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { name: "合约地址", href: "/contract-address" },
   { name: "合约交互", href: "/contract-interaction" },
   { name: "批量转账", href: "/batch-transfer" },
+  { name: "批量调用", href: "/batch-call" },
   { name: "Proxy 查询", href: "/proxy-lookup" },
   { name: "ABI 管理", href: "/abi-manager" },
   { name: "Selector 映射", href: "/abi-selectors" },
