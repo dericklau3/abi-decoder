@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react';
 import { Interface } from 'ethers';
 import { decodeDeployData } from 'viem';
+import { roughDecodeCalldata, type RoughDecodedCallData } from './transaction-rough-decoder-utils';
 
 type SavedAbi = { name: string; abi: string };
+type RoughCandidateKind = 'address' | 'uint256' | 'raw';
 
 const ABI_LIST_KEY = 'abiList';
 const CURRENT_ABI_KEY = 'currentAbi';
@@ -42,6 +44,13 @@ const processArgs = (args: unknown): unknown => {
   return args;
 };
 
+const formatRoughWordForJson = (word: RoughDecodedCallData['words'][number]) => ({
+  word: word.index,
+  address: word.address,
+  uint256: word.uint256,
+  raw: word.raw,
+});
+
 const TransactionDecoder = () => {
   // 保存的 ABI 列表，格式为 { name: string, abi: string }[]
   const [savedAbis, setSavedAbis] = useState<Array<SavedAbi>>([]);
@@ -56,7 +65,10 @@ const TransactionDecoder = () => {
   const [eventTopics, setEventTopics] = useState('');
   const [eventData, setEventData] = useState('');
   const [decodedEvent, setDecodedEvent] = useState<any>(null);
-  const [activePanel, setActivePanel] = useState<'tx' | 'event' | 'constructor'>('tx');
+  const [roughData, setRoughData] = useState('');
+  const [decodedRoughData, setDecodedRoughData] = useState<RoughDecodedCallData | null>(null);
+  const [roughCandidateSelection, setRoughCandidateSelection] = useState<Record<number, RoughCandidateKind>>({});
+  const [activePanel, setActivePanel] = useState<'tx' | 'event' | 'constructor' | 'rough'>('tx');
 
   // 添加 useEffect 来处理客户端数据加载
   useEffect(() => {
@@ -175,6 +187,25 @@ const TransactionDecoder = () => {
     }
   };
 
+  const decodeRoughData = () => {
+    setError('');
+    setDecodedRoughData(null);
+    try {
+      const decoded = roughDecodeCalldata(roughData);
+      setDecodedRoughData(decoded);
+      setRoughCandidateSelection(
+        Object.fromEntries(
+          decoded.words.map((word) => [
+            word.index,
+            word.address ? 'address' : 'uint256',
+          ])
+        )
+      );
+    } catch (err) {
+      setError('粗解码失败：' + (err as Error).message);
+    }
+  };
+
   const clearInputs = () => {
     setAbi('');
     setTxData('');
@@ -185,9 +216,36 @@ const TransactionDecoder = () => {
     setEventTopics('');
     setEventData('');
     setDecodedEvent(null);
+    setRoughData('');
+    setDecodedRoughData(null);
+    setRoughCandidateSelection({});
     setError('');
     setSelectedAbiIndex(null);
     localStorage.removeItem(CURRENT_ABI_KEY);
+  };
+
+  const getRoughCandidateOptions = (word: RoughDecodedCallData['words'][number]) => {
+    const options: Array<{ kind: RoughCandidateKind; label: string; disabled?: boolean }> = [
+      { kind: 'address', label: 'address', disabled: !word.address },
+      { kind: 'uint256', label: 'uint256' },
+      { kind: 'raw', label: 'raw' },
+    ];
+    return options;
+  };
+
+  const renderSelectedRoughCandidate = (word: RoughDecodedCallData['words'][number]) => {
+    const selected = roughCandidateSelection[word.index] || (word.address ? 'address' : 'uint256');
+    if (selected === 'address') {
+      return word.address ? (
+        <p className="break-all font-mono">{word.address}</p>
+      ) : (
+        <p className="text-slate-400">该 word 不像 address</p>
+      );
+    }
+    if (selected === 'raw') {
+      return <p className="break-all font-mono">{word.raw}</p>;
+    }
+    return <p className="break-all font-mono">{word.uint256}</p>;
   };
 
   return (
@@ -283,6 +341,16 @@ const TransactionDecoder = () => {
                   onClick={() => setActivePanel('constructor')}
                 >
                   Constructor
+                </button>
+                <button
+                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                    activePanel === 'rough'
+                      ? 'bg-cyan-700 text-white'
+                      : 'border border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                  }`}
+                  onClick={() => setActivePanel('rough')}
+                >
+                  无 ABI 粗解码
                 </button>
               </div>
             </div>
@@ -387,6 +455,37 @@ const TransactionDecoder = () => {
                 </button>
               </div>
             )}
+
+            {activePanel === 'rough' && (
+              <div className="mt-6 space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">data</label>
+                  <textarea
+                    className="h-32 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                    value={roughData}
+                    onChange={(e) => setRoughData(e.target.value)}
+                    placeholder="请输入交易 data / calldata (0x...)"
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  不依赖 ABI，仅按 selector、32-byte word、address、uint256、动态偏移、address[] 与 struct{} 候选进行拆分。
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    className="rounded-xl bg-cyan-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-cyan-600"
+                    onClick={decodeRoughData}
+                  >
+                    粗解码
+                  </button>
+                  <button
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                    onClick={clearInputs}
+                  >
+                    清除输入
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
 
           {error && (
@@ -434,6 +533,116 @@ const TransactionDecoder = () => {
                   2
                 )}
               </pre>
+            </section>
+          )}
+
+          {activePanel === 'rough' && decodedRoughData && (
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">无 ABI 粗解码结果</h3>
+                  <p className="mt-1 text-xs text-slate-500">以下为启发式候选，真实类型仍需 ABI 或源码确认。</p>
+                </div>
+                <span className="rounded-full border border-cyan-100 bg-cyan-50 px-3 py-1 font-mono text-xs text-cyan-700">
+                  {decodedRoughData.selector}
+                </span>
+              </div>
+
+              {decodedRoughData.dynamicSegments.length > 0 && (
+                <div className="mt-5">
+                  <p className="text-sm font-medium text-slate-700">动态段候选</p>
+                  <div className="mt-2 space-y-3">
+                    {decodedRoughData.dynamicSegments.map((segment) => (
+                      <div
+                        key={`${segment.fromWordIndex}-${segment.byteOffset}`}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700"
+                      >
+                        <div className="flex flex-wrap gap-2">
+                          <span className="font-semibold text-slate-900">{segment.kind}</span>
+                          <span>from word #{segment.fromWordIndex}</span>
+                          {typeof segment.length === 'number' && <span>length {segment.length}</span>}
+                        </div>
+                        {segment.values && (
+                          <pre className="mt-3 max-h-40 overflow-auto rounded-xl border border-slate-200 bg-white p-3 font-mono text-xs text-slate-700">
+                            {JSON.stringify(segment.values, null, 2)}
+                          </pre>
+                        )}
+                        {segment.words && (
+                          <pre className="mt-3 max-h-48 overflow-auto rounded-xl border border-slate-200 bg-white p-3 font-mono text-xs text-slate-700">
+                            {JSON.stringify(segment.words.map(formatRoughWordForJson), null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-5">
+                <p className="text-sm font-medium text-slate-700">32-byte words</p>
+                <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="grid grid-cols-[76px_1fr] border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-500 md:grid-cols-[76px_1fr_1fr]">
+                    <span>Word</span>
+                    <span>Raw</span>
+                    <span className="hidden md:block">候选</span>
+                  </div>
+                  {decodedRoughData.words.map((word) => (
+                    <div
+                      key={word.index}
+                      className="grid grid-cols-[76px_1fr] gap-3 border-b border-slate-100 px-4 py-3 text-xs last:border-b-0 md:grid-cols-[76px_1fr_1fr]"
+                    >
+                      <div className="text-slate-500">#{word.index}</div>
+                      <div className="break-all font-mono text-slate-700">{word.raw}</div>
+                      <div className="space-y-3 text-slate-600">
+                        <div className="flex flex-wrap gap-2">
+                          {getRoughCandidateOptions(word).map((option) => {
+                            const isSelected = (roughCandidateSelection[word.index] || (word.address ? 'address' : 'uint256')) === option.kind;
+                            return (
+                              <button
+                                key={option.kind}
+                                type="button"
+                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                                  isSelected
+                                    ? 'border-cyan-700 bg-cyan-700 text-white'
+                                    : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800'
+                                } ${option.disabled ? 'cursor-not-allowed opacity-40 hover:border-slate-200 hover:text-slate-500' : ''}`}
+                                disabled={option.disabled}
+                                onClick={() =>
+                                  setRoughCandidateSelection((current) => ({
+                                    ...current,
+                                    [word.index]: option.kind,
+                                  }))
+                                }
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                          {renderSelectedRoughCandidate(word)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {decodedRoughData.staticStructCandidate.fields.length > 0 && (
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-medium text-slate-700">struct{} 静态字段候选</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    未被动态段消费的 word 可视为一个静态 tuple / struct{} 的字段候选。
+                  </p>
+                  <pre className="mt-3 max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white p-3 font-mono text-xs text-slate-700">
+                    {JSON.stringify(
+                      decodedRoughData.staticStructCandidate.fields.map(formatRoughWordForJson),
+                      null,
+                      2
+                    )}
+                  </pre>
+                </div>
+              )}
             </section>
           )}
       </div>
