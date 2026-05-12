@@ -1,8 +1,36 @@
 export const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 export const EASTERN_TIME_ZONE = "America/New_York";
 
+export type ChainTimeKey = "bsc" | "ethereum";
+
+export type ChainTimeConfig = {
+  label: string;
+  defaultRpcUrl: string;
+  averageBlockTimeSeconds: number;
+};
+
+export type BlockTimestampPoint = {
+  number: bigint;
+  timestamp: number;
+};
+
+export const CHAIN_TIME_CONFIGS: Record<ChainTimeKey, ChainTimeConfig> = {
+  bsc: {
+    label: "BSC",
+    defaultRpcUrl: "https://bsc-dataseed.binance.org",
+    averageBlockTimeSeconds: 0.45,
+  },
+  ethereum: {
+    label: "Ethereum",
+    defaultRpcUrl: "https://ethereum-rpc.publicnode.com",
+    averageBlockTimeSeconds: 12,
+  },
+};
+
 const TIME_TEXT_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
+const BLOCK_HEIGHT_PATTERN = /^\d+$/;
+const RPC_QUANTITY_PATTERN = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 
 type TimeParts = {
   year: number;
@@ -159,3 +187,79 @@ export const timeTextToTimestampSeconds = (value: string, timeZone: string) => {
 
   return Math.floor(guess / 1000).toString();
 };
+
+export const parseBlockHeightInput = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed || !BLOCK_HEIGHT_PATTERN.test(trimmed)) {
+    throw new Error("请输入有效的区块高度");
+  }
+
+  return BigInt(trimmed);
+};
+
+export const blockNumberToRpcQuantity = (value: bigint) => {
+  if (value < BigInt(0)) {
+    throw new Error("区块高度不能为负数");
+  }
+
+  return `0x${value.toString(16)}`;
+};
+
+export const rpcQuantityToBigInt = (value: string) => {
+  const trimmed = value.trim();
+  if (!RPC_QUANTITY_PATTERN.test(trimmed)) {
+    throw new Error("RPC 返回了无效的区块高度");
+  }
+
+  return BigInt(trimmed);
+};
+
+export const estimateFutureTimestampForBlock = ({
+  latestBlockNumber,
+  latestTimestamp,
+  targetBlockNumber,
+  averageBlockTimeSeconds,
+}: {
+  latestBlockNumber: bigint;
+  latestTimestamp: number;
+  targetBlockNumber: bigint;
+  averageBlockTimeSeconds: number;
+}) => {
+  if (averageBlockTimeSeconds <= 0) {
+    throw new Error("平均出块时间必须大于 0");
+  }
+
+  if (targetBlockNumber <= latestBlockNumber) {
+    return latestTimestamp;
+  }
+
+  const blocksAhead = Number(targetBlockNumber - latestBlockNumber);
+  return Math.round(latestTimestamp + blocksAhead * averageBlockTimeSeconds);
+};
+
+export const estimateFutureBlockForTimestamp = ({
+  latestBlockNumber,
+  latestTimestamp,
+  targetTimestamp,
+  averageBlockTimeSeconds,
+}: {
+  latestBlockNumber: bigint;
+  latestTimestamp: number;
+  targetTimestamp: number;
+  averageBlockTimeSeconds: number;
+}) => {
+  if (averageBlockTimeSeconds <= 0) {
+    throw new Error("平均出块时间必须大于 0");
+  }
+
+  if (targetTimestamp <= latestTimestamp) {
+    return latestBlockNumber;
+  }
+
+  const secondsAhead = targetTimestamp - latestTimestamp;
+  const blocksAhead = BigInt(Math.ceil(secondsAhead / averageBlockTimeSeconds));
+  return latestBlockNumber + blocksAhead;
+};
+
+export const isFutureTimestamp = (targetTimestamp: number, nowTimestamp: number) =>
+  targetTimestamp > nowTimestamp;
