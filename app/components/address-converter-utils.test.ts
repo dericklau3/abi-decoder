@@ -9,6 +9,8 @@ import {
   decodeBase64ToUtf8,
   encodeUtf8ToBase64,
   textToBytes32Hex,
+  tronAddressToEvmAddress,
+  evmAddressToTronAddress,
 } from "./address-converter-utils";
 
 describe("address-converter-utils", () => {
@@ -80,5 +82,23 @@ describe("address-converter-utils", () => {
     expect(() =>
       bytes32HexToAddress(`0x${"1".repeat(24)}000000000000000000000000000000000000dead`),
     ).toThrow("该 bytes32 不是有效的地址编码");
+  });
+
+  test("converts tron address to checksum evm address", () => {
+    expect(tronAddressToEvmAddress("TDcQdDAbe5TUmLeAyDTvPkYamjLthF2GQ1")).toBe(
+      "0x27f17878127114e5D071AEeB7152a6119A4FFE88",
+    );
+  });
+
+  test("converts evm address to tron address", () => {
+    expect(evmAddressToTronAddress("0x27f17878127114e5D071AEeB7152a6119A4FFE88")).toBe(
+      "TDcQdDAbe5TUmLeAyDTvPkYamjLthF2GQ1",
+    );
+  });
+
+  test("rejects invalid tron base58check checksum", () => {
+    expect(() => tronAddressToEvmAddress("TDcQdDAbe5TUmLeAyDTvPkYamjLthF2GQ2")).toThrow(
+      "请输入有效的 Tron 地址",
+    );
   });
 });

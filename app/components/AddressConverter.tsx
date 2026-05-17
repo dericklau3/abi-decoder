@@ -16,6 +16,8 @@ import {
   normalizeAddressInput,
   normalizeHexInput,
   textToBytes32Hex,
+  tronAddressToEvmAddress,
+  evmAddressToTronAddress,
 } from "./address-converter-utils";
 
 const AddressConverter = () => {
@@ -56,6 +58,12 @@ const AddressConverter = () => {
   const [bytes32AddressHexInput, setBytes32AddressHexInput] = useState("");
   const [bytes32DecodedAddressOutput, setBytes32DecodedAddressOutput] = useState("");
   const [bytes32ToAddressError, setBytes32ToAddressError] = useState("");
+  const [tronAddressInput, setTronAddressInput] = useState("");
+  const [tronToEvmOutput, setTronToEvmOutput] = useState("");
+  const [tronToEvmError, setTronToEvmError] = useState("");
+  const [evmAddressInput, setEvmAddressInput] = useState("");
+  const [evmToTronOutput, setEvmToTronOutput] = useState("");
+  const [evmToTronError, setEvmToTronError] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
 
   const convertAddress = (value: string) => {
@@ -320,6 +328,40 @@ const AddressConverter = () => {
         error instanceof Error ? error.message : "bytes32 转 address 失败",
       );
       setBytes32AddressInput("");
+    }
+  };
+
+  const convertTronToEvm = (value: string) => {
+    setTronToEvmError("");
+    setCopyMessage("");
+    if (!value.trim()) {
+      setTronToEvmOutput("");
+      return;
+    }
+
+    try {
+      setTronToEvmOutput(tronAddressToEvmAddress(value));
+    } catch (error) {
+      setTronToEvmError(
+        error instanceof Error ? error.message : "Tron 地址转换失败",
+      );
+      setTronToEvmOutput("");
+    }
+  };
+
+  const convertEvmToTron = (value: string) => {
+    setEvmToTronError("");
+    setCopyMessage("");
+    if (!value.trim()) {
+      setEvmToTronOutput("");
+      return;
+    }
+
+    try {
+      setEvmToTronOutput(evmAddressToTronAddress(value));
+    } catch {
+      setEvmToTronError("请输入有效的 EVM 地址");
+      setEvmToTronOutput("");
     }
   };
 
@@ -1028,6 +1070,141 @@ const AddressConverter = () => {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">
+            Tron / EVM 地址互转
+          </h2>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
+            Base58Check
+          </span>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Tron 地址
+              </label>
+              <input
+                type="text"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                value={tronAddressInput}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setTronAddressInput(nextValue);
+                  convertTronToEvm(nextValue);
+                }}
+                placeholder="请输入 Tron 地址 (T...)"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                EVM 地址输出
+              </label>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700"
+                  value={tronToEvmOutput}
+                  placeholder="0x..."
+                />
+                <button
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                  onClick={() => handleCopy(tronToEvmOutput, "EVM 地址")}
+                  aria-label="复制 EVM 地址"
+                  title="复制"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                    />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {tronToEvmError && (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {tronToEvmError}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                EVM 地址
+              </label>
+              <input
+                type="text"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                value={evmAddressInput}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setEvmAddressInput(nextValue);
+                  convertEvmToTron(nextValue);
+                }}
+                placeholder="请输入 EVM 地址 (0x...)"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Tron 地址输出
+              </label>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700"
+                  value={evmToTronOutput}
+                  placeholder="T..."
+                />
+                <button
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                  onClick={() => handleCopy(evmToTronOutput, "Tron 地址")}
+                  aria-label="复制 Tron 地址"
+                  title="复制"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                    />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {evmToTronError && (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {evmToTronError}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {copyMessage && (
+          <div className="mt-3 text-xs text-slate-500">{copyMessage}</div>
+        )}
       </section>
     </div>
   );

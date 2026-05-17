@@ -1,7 +1,10 @@
-import { getAddress } from "ethers";
+import { getAddress, sha256 } from "ethers";
 
 const BASE64_PATTERN =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const TRON_ADDRESS_PREFIX = 0x41;
 
 export const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
 
@@ -24,6 +27,90 @@ export const normalizeHexInput = (value: string) => {
 export const isValidHex = (value: string) => /^[0-9a-fA-F]*$/.test(value);
 
 export const isValidDecimal = (value: string) => /^\d+$/.test(value);
+
+const hexToBytes = (value: string) =>
+  Uint8Array.from(value.match(/.{1,2}/g) ?? [], (byte) =>
+    Number.parseInt(byte, 16),
+  );
+
+const bytesToHex = (bytes: Uint8Array) =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const concatBytes = (...chunks: Uint8Array[]) => {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+};
+
+const doubleSha256 = (bytes: Uint8Array) =>
+  hexToBytes(sha256(hexToBytes(sha256(bytes).slice(2))).slice(2));
+
+const base58Encode = (bytes: Uint8Array) => {
+  let value = BigInt(`0x${bytesToHex(bytes) || "0"}`);
+  let output = "";
+
+  while (value > BigInt(0)) {
+    const remainder = Number(value % BigInt(58));
+    output = BASE58_ALPHABET[remainder] + output;
+    value /= BigInt(58);
+  }
+
+  for (const byte of bytes) {
+    if (byte !== 0) {
+      break;
+    }
+    output = "1" + output;
+  }
+
+  return output || "1";
+};
+
+const base58Decode = (value: string) => {
+  let decoded = BigInt(0);
+  for (const char of value) {
+    const digit = BASE58_ALPHABET.indexOf(char);
+    if (digit === -1) {
+      throw new Error("请输入有效的 Tron 地址");
+    }
+    decoded = decoded * BigInt(58) + BigInt(digit);
+  }
+
+  const hex = decoded.toString(16).padStart(decoded.toString(16).length + (decoded.toString(16).length % 2), "0");
+  const bytes = hex === "00" && decoded === BigInt(0) ? new Uint8Array() : hexToBytes(hex);
+  const leadingZeroes = value.match(/^1*/)?.[0].length ?? 0;
+
+  return concatBytes(new Uint8Array(leadingZeroes), bytes);
+};
+
+const ensureTronBase58CheckPayload = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return new Uint8Array();
+  }
+
+  const decoded = base58Decode(trimmed);
+  if (decoded.length !== 25) {
+    throw new Error("请输入有效的 Tron 地址");
+  }
+
+  const payload = decoded.slice(0, 21);
+  const checksum = decoded.slice(21);
+  const expectedChecksum = doubleSha256(payload).slice(0, 4);
+  if (!checksum.every((byte, index) => byte === expectedChecksum[index])) {
+    throw new Error("请输入有效的 Tron 地址");
+  }
+
+  if (payload[0] !== TRON_ADDRESS_PREFIX) {
+    throw new Error("请输入 Tron 主网地址");
+  }
+
+  return payload;
+};
 
 const ensureBytes32Hex = (value: string) => {
   const normalized = normalizeHexInput(value);
@@ -169,4 +256,29 @@ export const bytes32HexToAddress = (value: string) => {
   }
 
   return getAddress(`0x${addressBody}`);
+};
+
+export const tronAddressToEvmAddress = (value: string) => {
+  const payload = ensureTronBase58CheckPayload(value);
+  if (!payload.length) {
+    return "";
+  }
+
+  return getAddress(`0x${bytesToHex(payload.slice(1))}`);
+};
+
+export const evmAddressToTronAddress = (value: string) => {
+  const normalized = normalizeAddressInput(value);
+  if (!normalized) {
+    return "";
+  }
+
+  const checksummed = getAddress(normalized);
+  const payload = concatBytes(
+    Uint8Array.of(TRON_ADDRESS_PREFIX),
+    hexToBytes(checksummed.slice(2)),
+  );
+  const checksum = doubleSha256(payload).slice(0, 4);
+
+  return base58Encode(concatBytes(payload, checksum));
 };
