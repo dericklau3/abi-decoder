@@ -1,4 +1,6 @@
-import { getAddress, Interface, ParamType } from "ethers";
+import { getAddress, Interface, ParamType, parseUnits } from "ethers";
+
+export type IntegerUnit = "wei" | "gwei" | "ether";
 
 const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
@@ -22,7 +24,35 @@ const isIntegerType = (baseType: string) =>
   baseType.startsWith("int") ||
   baseType.startsWith("uint");
 
-const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
+export const isIntegerParamType = (type: string) =>
+  isIntegerType(ParamType.from(type).baseType);
+
+const integerUnitDecimals: Record<IntegerUnit, number> = {
+  wei: 0,
+  gwei: 9,
+  ether: 18,
+};
+
+const parseIntegerWithUnit = (
+  param: ParamType,
+  value: string,
+  unit: IntegerUnit,
+) => {
+  try {
+    return parseUnits(value, integerUnitDecimals[unit]);
+  } catch {
+    if (unit === "wei") {
+      throw new Error(`${param.type} 参数使用 wei 单位时必须是整数`);
+    }
+    throw new Error(`${param.type} 参数必须是有效的 ${unit} 数值`);
+  }
+};
+
+const coerceByParamType = (
+  param: ParamType,
+  rawValue: unknown,
+  unit: IntegerUnit = "wei",
+): unknown => {
   if (param.baseType === "array") {
     const childParam = param.arrayChildren;
     if (!childParam) {
@@ -35,7 +65,7 @@ const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
     if (!Array.isArray(parsedArray)) {
       throw new Error(`${param.type} 参数必须是数组`);
     }
-    return parsedArray.map((item) => coerceByParamType(childParam, item));
+    return parsedArray.map((item) => coerceByParamType(childParam, item, unit));
   }
 
   if (param.baseType === "tuple") {
@@ -50,7 +80,7 @@ const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
 
     if (Array.isArray(parsedTuple)) {
       return tupleComponents.map((component, index) =>
-        coerceByParamType(component, parsedTuple[index]),
+        coerceByParamType(component, parsedTuple[index], unit),
       );
     }
 
@@ -60,6 +90,7 @@ const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
         return coerceByParamType(
           component,
           (parsedTuple as Record<string, unknown>)[key],
+          unit,
         );
       });
     }
@@ -105,11 +136,7 @@ const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
   }
 
   if (isIntegerType(param.baseType)) {
-    try {
-      return BigInt(trimmed);
-    } catch {
-      throw new Error(`${param.type} 参数必须是整数`);
-    }
+    return parseIntegerWithUnit(param, trimmed, unit);
   }
 
   if (param.baseType === "array" || param.baseType === "tuple") {
@@ -123,18 +150,22 @@ const coerceByParamType = (param: ParamType, rawValue: unknown): unknown => {
   return trimmed;
 };
 
-export const parseArgumentValue = (type: string, value: string) =>
-  coerceByParamType(ParamType.from(type), value);
+export const parseArgumentValue = (
+  type: string,
+  value: string,
+  unit: IntegerUnit = "wei",
+) => coerceByParamType(ParamType.from(type), value, unit);
 
 export const encodeFunctionCalldata = (
   abi: any[],
   signature: string,
   inputs: Array<{ type: string }>,
   rawInputs: string[],
+  integerUnits: IntegerUnit[] = [],
 ) => {
   const iface = new Interface(abi);
   const args = inputs.map((input, index) =>
-    parseArgumentValue(input.type, rawInputs[index] ?? ""),
+    parseArgumentValue(input.type, rawInputs[index] ?? "", integerUnits[index] ?? "wei"),
   );
   return iface.encodeFunctionData(signature, args);
 };

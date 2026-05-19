@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-type SavedAbi = { name: string; abi: string };
+import {
+  hasDuplicateAbiName,
+  type SavedAbi,
+} from "./abi-manager-utils";
 
 const ABI_LIST_KEY = "abiList";
 const CURRENT_ABI_KEY = "currentAbi";
@@ -110,8 +113,13 @@ const AbiManager = () => {
 
   const handleSave = () => {
     setErrorMessage("");
-    if (!abiName.trim()) {
+    const normalizedName = abiName.trim();
+    if (!normalizedName) {
       setErrorMessage("请输入 ABI 名称与内容");
+      return;
+    }
+    if (hasDuplicateAbiName(savedAbis, normalizedName, selectedIndex ?? undefined)) {
+      setErrorMessage(`ABI 名称「${normalizedName}」已存在，请换一个名称`);
       return;
     }
     const { abiText, error } = normalizeAbiInput(abiInput);
@@ -120,7 +128,8 @@ const AbiManager = () => {
       return;
     }
     setAbiInput(abiText);
-    const nextItem = { name: abiName.trim(), abi: abiText };
+    setAbiName(normalizedName);
+    const nextItem = { name: normalizedName, abi: abiText };
     if (selectedIndex !== null && savedAbis[selectedIndex]) {
       const nextList = savedAbis.map((item, idx) =>
         idx === selectedIndex ? nextItem : item,
@@ -135,8 +144,13 @@ const AbiManager = () => {
 
   const handleSaveAsNew = () => {
     setErrorMessage("");
-    if (!abiName.trim()) {
+    const normalizedName = abiName.trim();
+    if (!normalizedName) {
       setErrorMessage("请输入 ABI 名称与内容");
+      return;
+    }
+    if (hasDuplicateAbiName(savedAbis, normalizedName)) {
+      setErrorMessage(`ABI 名称「${normalizedName}」已存在，请换一个名称`);
       return;
     }
     const { abiText, error } = normalizeAbiInput(abiInput);
@@ -145,7 +159,8 @@ const AbiManager = () => {
       return;
     }
     setAbiInput(abiText);
-    const nextItem = { name: abiName.trim(), abi: abiText };
+    setAbiName(normalizedName);
+    const nextItem = { name: normalizedName, abi: abiText };
     const nextList = [...savedAbis, nextItem];
     persistAbiList(nextList, nextItem.abi);
     setSelectedIndex(nextList.length - 1);
@@ -175,6 +190,10 @@ const AbiManager = () => {
         return;
       }
       const fileName = file.name.replace(/\.[^/.]+$/, "");
+      if (hasDuplicateAbiName(savedAbis, fileName)) {
+        setErrorMessage(`ABI 名称「${fileName}」已存在，请换一个名称`);
+        return;
+      }
       const nextList = [...savedAbis, { name: fileName, abi: abiText }];
       persistAbiList(nextList, abiText);
       setAbiName(fileName);

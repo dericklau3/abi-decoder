@@ -1,12 +1,26 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Interface } from 'ethers';
+import { Interface, type ParamType } from 'ethers';
 import { decodeDeployData } from 'viem';
 import { roughDecodeCalldata, type RoughDecodedCallData } from './transaction-rough-decoder-utils';
 
 type SavedAbi = { name: string; abi: string };
 type RoughCandidateKind = 'address' | 'uint256' | 'raw';
+type DecodedParam = {
+  name: string;
+  type: string;
+  value: unknown;
+};
+type DecodedNamedResult = {
+  name: string;
+  signature: string;
+  args: Array<DecodedParam>;
+};
+type DecodedConstructorResult = {
+  signature: string;
+  args: Array<DecodedParam>;
+};
 
 const ABI_LIST_KEY = 'abiList';
 const CURRENT_ABI_KEY = 'currentAbi';
@@ -44,6 +58,19 @@ const processArgs = (args: unknown): unknown => {
   return args;
 };
 
+const formatDecodedParams = (
+  inputs: ReadonlyArray<ParamType>,
+  args: ReadonlyArray<unknown> | unknown,
+): Array<DecodedParam> => {
+  const values = Array.isArray(args) ? args : [];
+
+  return inputs.map((input, index) => ({
+    name: input.name || `参数 ${index + 1}`,
+    type: input.format(),
+    value: processArgs(values[index]),
+  }));
+};
+
 const formatRoughWordForJson = (word: RoughDecodedCallData['words'][number]) => ({
   word: word.index,
   address: word.address,
@@ -57,14 +84,14 @@ const TransactionDecoder = () => {
   const [abi, setAbi] = useState('');
   const [selectedAbiIndex, setSelectedAbiIndex] = useState<number | null>(null);
   const [txData, setTxData] = useState('');
-  const [decodedData, setDecodedData] = useState<any>(null);
+  const [decodedData, setDecodedData] = useState<DecodedNamedResult | null>(null);
   const [error, setError] = useState('');
   const [constructorData, setConstructorData] = useState('');
   const [bytecode, setBytecode] = useState('');
-  const [decodedConstructor, setDecodedConstructor] = useState<any>(null);
+  const [decodedConstructor, setDecodedConstructor] = useState<DecodedConstructorResult | null>(null);
   const [eventTopics, setEventTopics] = useState('');
   const [eventData, setEventData] = useState('');
-  const [decodedEvent, setDecodedEvent] = useState<any>(null);
+  const [decodedEvent, setDecodedEvent] = useState<DecodedNamedResult | null>(null);
   const [roughData, setRoughData] = useState('');
   const [decodedRoughData, setDecodedRoughData] = useState<RoughDecodedCallData | null>(null);
   const [roughCandidateSelection, setRoughCandidateSelection] = useState<Record<number, RoughCandidateKind>>({});
@@ -118,8 +145,8 @@ const TransactionDecoder = () => {
 
       setDecodedData({
         name: decoded.name,
-        signature: decoded.signature,
-        args: processArgs(decoded.args),
+        signature: decoded.fragment.format('full'),
+        args: formatDecodedParams(decoded.fragment.inputs, decoded.args),
       });
     } catch (err) {
       setError('解析失败：' + (err as Error).message);
@@ -147,7 +174,11 @@ const TransactionDecoder = () => {
       // 这里要求传入完整部署 data，并额外提供 creation bytecode 用于剥离 constructor 参数。
       const dataHex = normalizeHex(constructorData) as `0x${string}`;
       const decoded = decodeDeployData({ abi: abiJson, data: dataHex, bytecode: bytecode as `0x${string}` });
-      setDecodedConstructor(decoded.args);
+      const iface = new Interface(abiJson);
+      setDecodedConstructor({
+        signature: iface.deploy.format('full'),
+        args: formatDecodedParams(iface.deploy.inputs, decoded.args ?? []),
+      });
     } catch (err) {
       setError('Constructor 解析失败：' + (err as Error).message);
     }
@@ -179,8 +210,8 @@ const TransactionDecoder = () => {
       }
       setDecodedEvent({
         name: decoded.name,
-        signature: decoded.signature,
-        args: processArgs(decoded.args),
+        signature: decoded.fragment.format('full'),
+        args: formatDecodedParams(decoded.fragment.inputs, decoded.args),
       });
     } catch (err) {
       setError('事件解析失败：' + (err as Error).message);
@@ -526,12 +557,12 @@ const TransactionDecoder = () => {
           {activePanel === 'constructor' && decodedConstructor && (
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
               <h3 className="text-base font-semibold text-slate-900">Constructor 解析结果</h3>
+              <div className="mt-4 space-y-2 text-sm text-slate-700">
+                <p>函数签名: {decodedConstructor.signature}</p>
+              </div>
+              <p className="mt-4 text-sm font-medium text-slate-700">参数</p>
               <pre className="mt-4 max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
-                {JSON.stringify(
-                  decodedConstructor,
-                  (key, value) => (typeof value === 'bigint' ? value.toString() : value),
-                  2
-                )}
+                {JSON.stringify(decodedConstructor.args, null, 2)}
               </pre>
             </section>
           )}

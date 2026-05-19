@@ -70,6 +70,28 @@ describe("contract-interaction-utils", () => {
     );
   });
 
+  test("encodes integer arguments with selected display units", () => {
+    const abi = ["function setNumber(uint256 newNumber)"];
+
+    expect(
+      encodeFunctionCalldata(
+        abi,
+        "setNumber(uint256)",
+        [{ type: "uint256" }],
+        ["1.5"],
+        ["ether"],
+      ),
+    ).toBe(
+      "0x3fb5c1cb00000000000000000000000000000000000000000000000014d1120d7b160000",
+    );
+  });
+
+  test("rejects fractional wei integer arguments", () => {
+    expect(() => parseArgumentValue("uint256", "1.5", "wei")).toThrow(
+      "uint256 参数使用 wei 单位时必须是整数",
+    );
+  });
+
   test("encodes selector-only calldata for a write function without arguments", () => {
     const abi = ["function increment()"];
 

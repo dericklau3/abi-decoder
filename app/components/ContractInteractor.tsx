@@ -14,6 +14,8 @@ import {
   appendTransactionOverrides,
   encodeFunctionCalldata,
   extractContractErrorMessage,
+  type IntegerUnit,
+  isIntegerParamType,
   normalizeAddressInput,
   parseArgumentValue,
 } from "./contract-interaction-utils";
@@ -27,6 +29,8 @@ type FunctionInfo = {
   inputs: Array<{ name: string; type: string }>;
   outputs: Array<{ name: string; type: string }>;
 };
+
+const INTEGER_UNITS: Array<IntegerUnit> = ["wei", "gwei", "ether"];
 
 const ABI_LIST_KEY = "abiList";
 const CURRENT_ABI_KEY = "currentAbi";
@@ -100,6 +104,7 @@ const ContractInteractor = () => {
   const [selectedAbiIndex, setSelectedAbiIndex] = useState<number | null>(null);
   const [selectedSignature, setSelectedSignature] = useState("");
   const [argInputs, setArgInputs] = useState<Record<string, string[]>>({});
+  const [argUnits, setArgUnits] = useState<Record<string, IntegerUnit[]>>({});
   const [payableValue, setPayableValue] = useState("");
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [injected, setInjected] = useState<ReturnType<typeof useWallet>["injected"]>(null);
@@ -208,6 +213,7 @@ const ContractInteractor = () => {
     }
 
     const currentInputs = argInputs[selectedFunction.signature] ?? [];
+    const currentUnits = argUnits[selectedFunction.signature] ?? [];
     const hasMissingInput = selectedFunction.inputs.some(
       (_, index) => !(currentInputs[index] ?? "").trim(),
     );
@@ -222,6 +228,7 @@ const ContractInteractor = () => {
           selectedFunction.signature,
           selectedFunction.inputs,
           currentInputs,
+          currentUnits,
         ),
         error: "",
       };
@@ -231,7 +238,7 @@ const ContractInteractor = () => {
         error: `参数格式无效，暂不能编码 data：${extractContractErrorMessage(err)}`,
       };
     }
-  }, [abi, argInputs, selectedFunction]);
+  }, [abi, argInputs, argUnits, selectedFunction]);
 
   const handleSelectAbi = (indexValue: string) => {
     if (!indexValue) {
@@ -261,6 +268,28 @@ const ContractInteractor = () => {
     setSelectedSignature(signature);
     setPayableValue("");
     resetOutputs();
+  };
+
+  const updateArgInput = (signature: string, index: number, value: string) => {
+    setArgInputs((prev) => {
+      const next = {
+        ...prev,
+        [signature]: [...(prev[signature] ?? [])],
+      };
+      next[signature][index] = value;
+      return next;
+    });
+  };
+
+  const updateArgUnit = (signature: string, index: number, unit: IntegerUnit) => {
+    setArgUnits((prev) => {
+      const next = {
+        ...prev,
+        [signature]: [...(prev[signature] ?? [])],
+      };
+      next[signature][index] = unit;
+      return next;
+    });
   };
 
   const handleCopyAccount = async () => {
@@ -344,10 +373,12 @@ const ContractInteractor = () => {
       }
       const contract = new Contract(checksummed, abi, provider);
       const currentInputs = argInputs[selectedFunction.signature] ?? [];
+      const currentUnits = argUnits[selectedFunction.signature] ?? [];
       const args = selectedFunction.inputs.map((_, index) =>
         parseArgumentValue(
           selectedFunction.inputs[index]?.type ?? "string",
           currentInputs[index] ?? "",
+          currentUnits[index] ?? "wei",
         ),
       );
       const fn = contract.getFunction(selectedFunction.signature);
@@ -395,10 +426,12 @@ const ContractInteractor = () => {
       }
       const contract = new Contract(checksummed, abi, signer);
       const currentInputs = argInputs[selectedFunction.signature] ?? [];
+      const currentUnits = argUnits[selectedFunction.signature] ?? [];
       const args = selectedFunction.inputs.map((_, index) =>
         parseArgumentValue(
           selectedFunction.inputs[index]?.type ?? "string",
           currentInputs[index] ?? "",
+          currentUnits[index] ?? "wei",
         ),
       );
       const fn = contract.getFunction(selectedFunction.signature);
@@ -652,29 +685,46 @@ const ContractInteractor = () => {
                                       {input.type}
                                     </span>
                                   </label>
-                                  <input
-                                    type="text"
-                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                                    value={
-                                      (argInputs[selectedFunction.signature] ??
-                                        [])[index] ?? ""
-                                    }
-                                    onChange={(e) => {
-                                      setArgInputs((prev) => {
-                                        const next = {
-                                          ...prev,
-                                          [selectedFunction.signature]: [
-                                            ...(prev[selectedFunction.signature] ??
-                                              []),
-                                          ],
-                                        };
-                                        next[selectedFunction.signature][index] =
-                                          e.target.value;
-                                        return next;
-                                      });
-                                    }}
-                                    placeholder="请输入参数值"
-                                  />
+                                  <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400">
+                                    <input
+                                      type="text"
+                                      className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none"
+                                      value={
+                                        (argInputs[selectedFunction.signature] ??
+                                          [])[index] ?? ""
+                                      }
+                                      onChange={(e) =>
+                                        updateArgInput(
+                                          selectedFunction.signature,
+                                          index,
+                                          e.target.value,
+                                        )
+                                      }
+                                      placeholder="请输入参数值"
+                                    />
+                                    {isIntegerParamType(input.type) && (
+                                      <select
+                                        className="w-24 border-l border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600 focus:outline-none"
+                                        value={
+                                          (argUnits[selectedFunction.signature] ??
+                                            [])[index] ?? "wei"
+                                        }
+                                        onChange={(e) =>
+                                          updateArgUnit(
+                                            selectedFunction.signature,
+                                            index,
+                                            e.target.value as IntegerUnit,
+                                          )
+                                        }
+                                      >
+                                        {INTEGER_UNITS.map((unit) => (
+                                          <option key={unit} value={unit}>
+                                            {unit}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -784,29 +834,46 @@ const ContractInteractor = () => {
                                       {input.type}
                                     </span>
                                   </label>
-                                  <input
-                                    type="text"
-                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                                    value={
-                                      (argInputs[selectedFunction.signature] ??
-                                        [])[index] ?? ""
-                                    }
-                                    onChange={(e) => {
-                                      setArgInputs((prev) => {
-                                        const next = {
-                                          ...prev,
-                                          [selectedFunction.signature]: [
-                                            ...(prev[selectedFunction.signature] ??
-                                              []),
-                                          ],
-                                        };
-                                        next[selectedFunction.signature][index] =
-                                          e.target.value;
-                                        return next;
-                                      });
-                                    }}
-                                    placeholder="请输入参数值"
-                                  />
+                                  <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400">
+                                    <input
+                                      type="text"
+                                      className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none"
+                                      value={
+                                        (argInputs[selectedFunction.signature] ??
+                                          [])[index] ?? ""
+                                      }
+                                      onChange={(e) =>
+                                        updateArgInput(
+                                          selectedFunction.signature,
+                                          index,
+                                          e.target.value,
+                                        )
+                                      }
+                                      placeholder="请输入参数值"
+                                    />
+                                    {isIntegerParamType(input.type) && (
+                                      <select
+                                        className="w-24 border-l border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600 focus:outline-none"
+                                        value={
+                                          (argUnits[selectedFunction.signature] ??
+                                            [])[index] ?? "wei"
+                                        }
+                                        onChange={(e) =>
+                                          updateArgUnit(
+                                            selectedFunction.signature,
+                                            index,
+                                            e.target.value as IntegerUnit,
+                                          )
+                                        }
+                                      >
+                                        {INTEGER_UNITS.map((unit) => (
+                                          <option key={unit} value={unit}>
+                                            {unit}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </div>
                                 </div>
                               ))}
                             </div>
