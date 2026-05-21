@@ -187,9 +187,11 @@ export const appendTransactionOverrides = (
   return [...args, { value: trimmedPayableValue }];
 };
 
-export const extractContractErrorMessage = (error: unknown): string => {
+const getErrorFields = (error: unknown) => {
   const queue: unknown[] = [error];
   const seen = new Set<unknown>();
+  const messages: string[] = [];
+  const codes: Array<string | number> = [];
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -199,22 +201,58 @@ export const extractContractErrorMessage = (error: unknown): string => {
     seen.add(current);
 
     if (typeof current === "string" && current.trim()) {
-      return current.trim();
+      messages.push(current.trim());
+      continue;
     }
 
     if (typeof current === "object") {
       const record = current as Record<string, unknown>;
-      const directMessage = [record.shortMessage, record.reason, record.message].find(
-        (value) => typeof value === "string" && value.trim(),
-      );
-      if (typeof directMessage === "string") {
-        return directMessage.trim();
-      }
+      [record.shortMessage, record.reason, record.message].forEach((value) => {
+        if (typeof value === "string" && value.trim()) {
+          messages.push(value.trim());
+        }
+      });
+      [record.code, record.errorCode].forEach((value) => {
+        if (typeof value === "string" || typeof value === "number") {
+          codes.push(value);
+        }
+      });
       queue.push(record.error, record.info, record.data, record.cause);
     }
   }
 
-  return "未知错误，请检查钱包弹窗、网络和合约参数";
+  return { messages, codes };
+};
+
+export const isUserRejectedWalletRequest = (error: unknown) => {
+  const { messages, codes } = getErrorFields(error);
+  if (
+    codes.some(
+      (code) =>
+        code === 4001 ||
+        code === "4001" ||
+        code === "ACTION_REJECTED" ||
+        code === "USER_REJECTED" ||
+        code === "USER_DISCONNECTED",
+    )
+  ) {
+    return true;
+  }
+
+  return messages.some((message) =>
+    /user rejected|user denied|request rejected|rejected the request|denied transaction|denied message|rejected by user|用户拒绝|拒绝请求|could not coalesce error/i.test(
+      message,
+    ),
+  );
+};
+
+export const extractContractErrorMessage = (error: unknown): string => {
+  if (isUserRejectedWalletRequest(error)) {
+    return "用户拒绝了钱包请求";
+  }
+
+  const { messages } = getErrorFields(error);
+  return messages[0] ?? "未知错误，请检查钱包弹窗、网络和合约参数";
 };
 
 export { normalizeAddressInput };

@@ -4,6 +4,7 @@ import {
   appendTransactionOverrides,
   encodeFunctionCalldata,
   extractContractErrorMessage,
+  isUserRejectedWalletRequest,
   normalizeAddressInput,
   parseArgumentValue,
 } from "./contract-interaction-utils";
@@ -33,6 +34,20 @@ describe("contract-interaction-utils", () => {
         info: { error: { message: "execution reverted: Ownable: caller is not the owner" } },
       }),
     ).toBe("execution reverted: Ownable: caller is not the owner");
+  });
+
+  test("recognizes rejected wallet requests", () => {
+    const error = {
+      code: "UNKNOWN_ERROR",
+      message: "could not coalesce error",
+      error: {
+        code: 4001,
+        message: "User rejected the request.",
+      },
+    };
+
+    expect(isUserRejectedWalletRequest(error)).toBe(true);
+    expect(extractContractErrorMessage(error)).toBe("用户拒绝了钱包请求");
   });
 
   test("normalizes addresses by adding missing prefix", () => {
