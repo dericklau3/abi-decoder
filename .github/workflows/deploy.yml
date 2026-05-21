@@ -35,6 +35,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build
+        env:
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
         run: bun run build
 
       - name: Upload artifact
