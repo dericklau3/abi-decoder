@@ -102,19 +102,19 @@ const ContractInteractor = () => {
   const [abiInput, setAbiInput] = useState("");
   const [savedAbis, setSavedAbis] = useState<Array<SavedAbi>>([]);
   const [selectedAbiIndex, setSelectedAbiIndex] = useState<number | null>(null);
-  const [selectedSignature, setSelectedSignature] = useState("");
+  const [expandedSignatures, setExpandedSignatures] = useState<Record<string, boolean>>({});
   const [argInputs, setArgInputs] = useState<Record<string, string[]>>({});
   const [argUnits, setArgUnits] = useState<Record<string, IntegerUnit[]>>({});
-  const [payableValue, setPayableValue] = useState("");
+  const [payableValues, setPayableValues] = useState<Record<string, string>>({});
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [injected, setInjected] = useState<ReturnType<typeof useWallet>["injected"]>(null);
   const [account, setAccount] = useState("");
   const [networkName, setNetworkName] = useState("");
   const [chainId, setChainId] = useState<number | null>(null);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [resultOutput, setResultOutput] = useState("");
-  const [txHash, setTxHash] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessages, setErrorMessages] = useState<Record<string, string>>({});
+  const [resultOutputs, setResultOutputs] = useState<Record<string, string>>({});
+  const [txHashes, setTxHashes] = useState<Record<string, string>>({});
+  const [loadingSignatures, setLoadingSignatures] = useState<Record<string, boolean>>({});
   const [copyMessage, setCopyMessage] = useState("");
 
   useEffect(() => {
@@ -197,24 +197,18 @@ const ContractInteractor = () => {
     return { readFunctions: read, writeFunctions: write };
   }, [functions]);
 
-  const selectedFunction = useMemo(
-    () => functions.find((item) => item.signature === selectedSignature) ?? null,
-    [functions, selectedSignature],
-  );
-
-  const calldataPreview = useMemo(() => {
+  const getCalldataPreview = (fn: FunctionInfo) => {
     if (
       !abi ||
-      !selectedFunction ||
-      selectedFunction.stateMutability === "view" ||
-      selectedFunction.stateMutability === "pure"
+      fn.stateMutability === "view" ||
+      fn.stateMutability === "pure"
     ) {
       return { data: "", error: "" };
     }
 
-    const currentInputs = argInputs[selectedFunction.signature] ?? [];
-    const currentUnits = argUnits[selectedFunction.signature] ?? [];
-    const hasMissingInput = selectedFunction.inputs.some(
+    const currentInputs = argInputs[fn.signature] ?? [];
+    const currentUnits = argUnits[fn.signature] ?? [];
+    const hasMissingInput = fn.inputs.some(
       (_, index) => !(currentInputs[index] ?? "").trim(),
     );
     if (hasMissingInput) {
@@ -225,8 +219,8 @@ const ContractInteractor = () => {
       return {
         data: encodeFunctionCalldata(
           abi,
-          selectedFunction.signature,
-          selectedFunction.inputs,
+          fn.signature,
+          fn.inputs,
           currentInputs,
           currentUnits,
         ),
@@ -238,7 +232,7 @@ const ContractInteractor = () => {
         error: `参数格式无效，暂不能编码 data：${extractContractErrorMessage(err)}`,
       };
     }
-  }, [abi, argInputs, argUnits, selectedFunction]);
+  };
 
   const handleSelectAbi = (indexValue: string) => {
     if (!indexValue) {
@@ -257,17 +251,18 @@ const ContractInteractor = () => {
     localStorage.setItem(CURRENT_ABI_KEY, selected.abi);
   };
 
-  const resetOutputs = () => {
-    setErrorMessage("");
-    setResultOutput("");
-    setTxHash("");
-    setIsLoading(false);
+  const resetOutputs = (signature: string) => {
+    setErrorMessages((prev) => ({ ...prev, [signature]: "" }));
+    setResultOutputs((prev) => ({ ...prev, [signature]: "" }));
+    setTxHashes((prev) => ({ ...prev, [signature]: "" }));
+    setLoadingSignatures((prev) => ({ ...prev, [signature]: false }));
   };
 
-  const handleSelectFunction = (signature: string) => {
-    setSelectedSignature(signature);
-    setPayableValue("");
-    resetOutputs();
+  const handleToggleFunction = (signature: string) => {
+    setExpandedSignatures((prev) => ({
+      ...prev,
+      [signature]: !prev[signature],
+    }));
   };
 
   const updateArgInput = (signature: string, index: number, value: string) => {
@@ -314,107 +309,114 @@ const ContractInteractor = () => {
     }
   };
 
-  const handleCopyCalldata = async () => {
-    if (!calldataPreview.data) {
+  const updatePayableValue = (signature: string, value: string) => {
+    setPayableValues((prev) => ({
+      ...prev,
+      [signature]: value,
+    }));
+  };
+
+  const handleCopyCalldata = async (data: string) => {
+    if (!data) {
       setCopyMessage("暂无可复制 data");
       return;
     }
     try {
-      await navigator.clipboard.writeText(calldataPreview.data);
+      await navigator.clipboard.writeText(data);
       setCopyMessage("调用 data 已复制");
     } catch {
       setCopyMessage("复制失败，请检查浏览器权限");
     }
   };
 
-  const ensureInputs = () => {
-    if (!selectedFunction) {
-      return false;
-    }
-    const currentInputs = argInputs[selectedFunction.signature] ?? [];
-    const missing = selectedFunction.inputs.some(
+  const setFunctionError = (signature: string, message: string) => {
+    setErrorMessages((prev) => ({ ...prev, [signature]: message }));
+  };
+
+  const setFunctionLoading = (signature: string, isLoading: boolean) => {
+    setLoadingSignatures((prev) => ({ ...prev, [signature]: isLoading }));
+  };
+
+  const ensureInputs = (fn: FunctionInfo) => {
+    const currentInputs = argInputs[fn.signature] ?? [];
+    const missing = fn.inputs.some(
       (_, index) => !(currentInputs[index] ?? "").trim(),
     );
     if (missing) {
-      setErrorMessage("请填写所有参数");
+      setFunctionError(fn.signature, "请填写所有参数");
       return false;
     }
     return true;
   };
 
-  const handleCall = async () => {
-    resetOutputs();
+  const handleCall = async (fnInfo: FunctionInfo) => {
+    resetOutputs(fnInfo.signature);
     if (!provider) {
-      setErrorMessage("请先连接钱包");
+      setFunctionError(fnInfo.signature, "请先连接钱包");
       return;
     }
-    if (!selectedFunction) {
-      setErrorMessage("请选择要调用的函数");
-      return;
-    }
-    if (!ensureInputs()) {
+    if (!ensureInputs(fnInfo)) {
       return;
     }
     const normalizedAddress = normalizeAddressInput(addressInput);
     if (!normalizedAddress) {
-      setErrorMessage("请输入合约地址");
+      setFunctionError(fnInfo.signature, "请输入合约地址");
       return;
     }
     if (!abi) {
-      setErrorMessage("请选择 ABI");
+      setFunctionError(fnInfo.signature, "请选择 ABI");
       return;
     }
     try {
-      setIsLoading(true);
+      setFunctionLoading(fnInfo.signature, true);
       const checksummed = getAddress(normalizedAddress);
       const code = await provider.getCode(checksummed);
       if (code === "0x") {
         throw new Error("当前链上未找到该合约地址，请检查合约地址与钱包网络是否匹配");
       }
       const contract = new Contract(checksummed, abi, provider);
-      const currentInputs = argInputs[selectedFunction.signature] ?? [];
-      const currentUnits = argUnits[selectedFunction.signature] ?? [];
-      const args = selectedFunction.inputs.map((_, index) =>
+      const currentInputs = argInputs[fnInfo.signature] ?? [];
+      const currentUnits = argUnits[fnInfo.signature] ?? [];
+      const args = fnInfo.inputs.map((_, index) =>
         parseArgumentValue(
-          selectedFunction.inputs[index]?.type ?? "string",
+          fnInfo.inputs[index]?.type ?? "string",
           currentInputs[index] ?? "",
           currentUnits[index] ?? "wei",
         ),
       );
-      const fn = contract.getFunction(selectedFunction.signature);
+      const fn = contract.getFunction(fnInfo.signature);
       const result = await fn(...args);
-      setResultOutput(formatResult(result));
+      setResultOutputs((prev) => ({
+        ...prev,
+        [fnInfo.signature]: formatResult(result),
+      }));
     } catch (err) {
-      setErrorMessage("调用失败：" + extractContractErrorMessage(err));
+      setFunctionError(fnInfo.signature, "调用失败：" + extractContractErrorMessage(err));
     } finally {
-      setIsLoading(false);
+      setFunctionLoading(fnInfo.signature, false);
     }
   };
 
-  const handleSend = async () => {
-    resetOutputs();
+  const handleSend = async (fnInfo: FunctionInfo) => {
+    resetOutputs(fnInfo.signature);
     if (!provider) {
-      setErrorMessage("请先连接钱包");
+      setFunctionError(fnInfo.signature, "请先连接钱包");
       return;
     }
-    if (!selectedFunction) {
-      setErrorMessage("请选择要调用的函数");
-      return;
-    }
-    if (!ensureInputs()) {
+    if (!ensureInputs(fnInfo)) {
       return;
     }
     const normalizedAddress = normalizeAddressInput(addressInput);
     if (!normalizedAddress) {
-      setErrorMessage("请输入合约地址");
+      setFunctionError(fnInfo.signature, "请输入合约地址");
       return;
     }
     if (!abi) {
-      setErrorMessage("请选择 ABI");
+      setFunctionError(fnInfo.signature, "请选择 ABI");
       return;
     }
     try {
-      setIsLoading(true);
+      setFunctionLoading(fnInfo.signature, true);
       if (typeof injected?.request === "function") {
         await injected.request({ method: "eth_requestAccounts" });
       }
@@ -425,20 +427,20 @@ const ContractInteractor = () => {
         throw new Error("当前链上未找到该合约地址，请检查合约地址与钱包网络是否匹配");
       }
       const contract = new Contract(checksummed, abi, signer);
-      const currentInputs = argInputs[selectedFunction.signature] ?? [];
-      const currentUnits = argUnits[selectedFunction.signature] ?? [];
-      const args = selectedFunction.inputs.map((_, index) =>
+      const currentInputs = argInputs[fnInfo.signature] ?? [];
+      const currentUnits = argUnits[fnInfo.signature] ?? [];
+      const args = fnInfo.inputs.map((_, index) =>
         parseArgumentValue(
-          selectedFunction.inputs[index]?.type ?? "string",
+          fnInfo.inputs[index]?.type ?? "string",
           currentInputs[index] ?? "",
           currentUnits[index] ?? "wei",
         ),
       );
-      const fn = contract.getFunction(selectedFunction.signature);
+      const fn = contract.getFunction(fnInfo.signature);
       const txArgs = appendTransactionOverrides(
         args,
-        selectedFunction.stateMutability,
-        payableValue,
+        fnInfo.stateMutability,
+        payableValues[fnInfo.signature] ?? "",
       ).map((item) =>
         typeof item === "object" &&
         item !== null &&
@@ -448,12 +450,14 @@ const ContractInteractor = () => {
           : item,
       );
       const tx = await fn(...txArgs);
-      setTxHash(tx.hash);
-      setResultOutput("");
+      setTxHashes((prev) => ({ ...prev, [fnInfo.signature]: tx.hash }));
     } catch (err) {
-      setErrorMessage("交易发送失败：" + extractContractErrorMessage(err));
+      setFunctionError(
+        fnInfo.signature,
+        "交易发送失败：" + extractContractErrorMessage(err),
+      );
     } finally {
-      setIsLoading(false);
+      setFunctionLoading(fnInfo.signature, false);
     }
   };
 
@@ -648,36 +652,40 @@ const ContractInteractor = () => {
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
                   {readFunctions.map((item) => {
-                    const isActive = item.signature === selectedSignature;
+                    const isExpanded = Boolean(expandedSignatures[item.signature]);
+                    const isFunctionLoading = Boolean(loadingSignatures[item.signature]);
+                    const errorMessage = errorMessages[item.signature] ?? "";
+                    const resultOutput = resultOutputs[item.signature] ?? "";
+                    const txHash = txHashes[item.signature] ?? "";
                     return (
                       <div key={item.signature} className="space-y-3">
                         <button
                           type="button"
                           className={`w-full rounded-2xl border px-3 py-2 text-left text-sm transition ${
-                            isActive
+                            isExpanded
                               ? "border-slate-900 bg-slate-900 text-white"
                               : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                           }`}
-                          onClick={() => handleSelectFunction(item.signature)}
+                          onClick={() => handleToggleFunction(item.signature)}
                         >
                           <div className="font-medium">{item.name}</div>
                           <div
                             className={`text-xs ${
-                              isActive ? "text-slate-200" : "text-slate-500"
+                              isExpanded ? "text-slate-200" : "text-slate-500"
                             }`}
                           >
                             {item.signature}
                           </div>
                         </button>
-                        {isActive && selectedFunction && (
+                        {isExpanded && (
                           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                             <div className="grid gap-3 md:grid-cols-2">
-                              {selectedFunction.inputs.length === 0 && (
+                              {item.inputs.length === 0 && (
                                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500 md:col-span-2">
                                   此函数无输入参数
                                 </div>
                               )}
-                              {selectedFunction.inputs.map((input, index) => (
+                              {item.inputs.map((input, index) => (
                                 <div key={`${input.name || "arg"}-${index}`}>
                                   <label className="mb-2 block text-sm font-medium text-slate-700">
                                     {input.name || `参数 ${index + 1}`}{" "}
@@ -690,12 +698,11 @@ const ContractInteractor = () => {
                                       type="text"
                                       className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none"
                                       value={
-                                        (argInputs[selectedFunction.signature] ??
-                                          [])[index] ?? ""
+                                        (argInputs[item.signature] ?? [])[index] ?? ""
                                       }
                                       onChange={(e) =>
                                         updateArgInput(
-                                          selectedFunction.signature,
+                                          item.signature,
                                           index,
                                           e.target.value,
                                         )
@@ -706,12 +713,11 @@ const ContractInteractor = () => {
                                       <select
                                         className="w-24 border-l border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600 focus:outline-none"
                                         value={
-                                          (argUnits[selectedFunction.signature] ??
-                                            [])[index] ?? "wei"
+                                          (argUnits[item.signature] ?? [])[index] ?? "wei"
                                         }
                                         onChange={(e) =>
                                           updateArgUnit(
-                                            selectedFunction.signature,
+                                            item.signature,
                                             index,
                                             e.target.value as IntegerUnit,
                                           )
@@ -733,10 +739,10 @@ const ContractInteractor = () => {
                               <button
                                 type="button"
                                 className="rounded-xl border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-                                onClick={handleCall}
-                                disabled={isLoading}
+                                onClick={() => handleCall(item)}
+                                disabled={isFunctionLoading}
                               >
-                                {isLoading ? "读取中..." : "读取合约"}
+                                {isFunctionLoading ? "读取中..." : "读取合约"}
                               </button>
                             </div>
 
@@ -797,36 +803,41 @@ const ContractInteractor = () => {
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
                   {writeFunctions.map((item) => {
-                    const isActive = item.signature === selectedSignature;
+                    const isExpanded = Boolean(expandedSignatures[item.signature]);
+                    const isFunctionLoading = Boolean(loadingSignatures[item.signature]);
+                    const errorMessage = errorMessages[item.signature] ?? "";
+                    const resultOutput = resultOutputs[item.signature] ?? "";
+                    const txHash = txHashes[item.signature] ?? "";
+                    const calldataPreview = getCalldataPreview(item);
                     return (
                       <div key={item.signature} className="space-y-3">
                         <button
                           type="button"
                           className={`w-full rounded-2xl border px-3 py-2 text-left text-sm transition ${
-                            isActive
+                            isExpanded
                               ? "border-slate-900 bg-slate-900 text-white"
                               : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                           }`}
-                          onClick={() => handleSelectFunction(item.signature)}
+                          onClick={() => handleToggleFunction(item.signature)}
                         >
                           <div className="font-medium">{item.name}</div>
                           <div
                             className={`text-xs ${
-                              isActive ? "text-slate-200" : "text-slate-500"
+                              isExpanded ? "text-slate-200" : "text-slate-500"
                             }`}
                           >
                             {item.signature}
                           </div>
                         </button>
-                        {isActive && selectedFunction && (
+                        {isExpanded && (
                           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                             <div className="grid gap-3 md:grid-cols-2">
-                              {selectedFunction.inputs.length === 0 && (
+                              {item.inputs.length === 0 && (
                                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500 md:col-span-2">
                                   此函数无输入参数
                                 </div>
                               )}
-                              {selectedFunction.inputs.map((input, index) => (
+                              {item.inputs.map((input, index) => (
                                 <div key={`${input.name || "arg"}-${index}`}>
                                   <label className="mb-2 block text-sm font-medium text-slate-700">
                                     {input.name || `参数 ${index + 1}`}{" "}
@@ -839,12 +850,11 @@ const ContractInteractor = () => {
                                       type="text"
                                       className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none"
                                       value={
-                                        (argInputs[selectedFunction.signature] ??
-                                          [])[index] ?? ""
+                                        (argInputs[item.signature] ?? [])[index] ?? ""
                                       }
                                       onChange={(e) =>
                                         updateArgInput(
-                                          selectedFunction.signature,
+                                          item.signature,
                                           index,
                                           e.target.value,
                                         )
@@ -855,12 +865,11 @@ const ContractInteractor = () => {
                                       <select
                                         className="w-24 border-l border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600 focus:outline-none"
                                         value={
-                                          (argUnits[selectedFunction.signature] ??
-                                            [])[index] ?? "wei"
+                                          (argUnits[item.signature] ?? [])[index] ?? "wei"
                                         }
                                         onChange={(e) =>
                                           updateArgUnit(
-                                            selectedFunction.signature,
+                                            item.signature,
                                             index,
                                             e.target.value as IntegerUnit,
                                           )
@@ -878,7 +887,7 @@ const ContractInteractor = () => {
                               ))}
                             </div>
 
-                            {selectedFunction.stateMutability === "payable" && (
+                            {item.stateMutability === "payable" && (
                               <div className="mt-4">
                                 <label className="mb-2 block text-sm font-medium text-slate-700">
                                   发送 ETH (可选)
@@ -886,8 +895,10 @@ const ContractInteractor = () => {
                                 <input
                                   type="text"
                                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                                  value={payableValue}
-                                  onChange={(e) => setPayableValue(e.target.value)}
+                                  value={payableValues[item.signature] ?? ""}
+                                  onChange={(e) =>
+                                    updatePayableValue(item.signature, e.target.value)
+                                  }
                                   placeholder="例如 0.01"
                                 />
                               </div>
@@ -901,7 +912,7 @@ const ContractInteractor = () => {
                                 <button
                                   type="button"
                                   className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                                  onClick={handleCopyCalldata}
+                                  onClick={() => handleCopyCalldata(calldataPreview.data)}
                                   disabled={!calldataPreview.data}
                                   aria-label="复制调用 data"
                                   title="复制调用 data"
@@ -940,10 +951,10 @@ const ContractInteractor = () => {
                               <button
                                 type="button"
                                 className="rounded-xl border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-                                onClick={handleSend}
-                                disabled={isLoading}
+                                onClick={() => handleSend(item)}
+                                disabled={isFunctionLoading}
                               >
-                                {isLoading ? "发送中..." : "发送交易"}
+                                {isFunctionLoading ? "发送中..." : "发送交易"}
                               </button>
                             </div>
 
