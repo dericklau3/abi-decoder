@@ -16,6 +16,7 @@ type WalletContextValue = {
   injected: InjectedProvider | null;
   account: string;
   networkName: string;
+  nativeCurrencySymbol: string;
   chainId: number | null;
   isConnecting: boolean;
   openWalletModal: () => void;
@@ -54,6 +55,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       injected,
       account: account.address ?? "",
       networkName: account.chain?.name ?? "",
+      nativeCurrencySymbol: account.chain?.nativeCurrency?.symbol ?? "ETH",
       chainId: account.isConnected ? account.chainId ?? chainId ?? null : null,
       isConnecting: account.isConnecting || account.isReconnecting || isConnectorClientLoading,
       openWalletModal: () => {
