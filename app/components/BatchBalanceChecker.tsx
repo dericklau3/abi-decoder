@@ -1,10 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatEther } from "ethers";
+import { Contract, formatEther } from "ethers";
 import { useWallet } from "./wallet/WalletProvider";
-import { parseBalanceAddressInput } from "./batch-balance-utils";
+import {
+  formatTokenBalance,
+  normalizeErc20TokenAddress,
+  parseBalanceAddressInput,
+} from "./batch-balance-utils";
 import { extractContractErrorMessage } from "./contract-interaction-utils";
+
+type BalanceAssetType = "native" | "erc20";
 
 type BalanceResult = {
   index: number;
@@ -13,6 +19,12 @@ type BalanceResult = {
   balance?: string;
   error?: string;
 };
+
+const ERC20_BALANCE_ABI = [
+  "function balanceOf(address account) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
+];
 
 const shortAddress = (address: string) =>
   address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "";
@@ -25,6 +37,10 @@ const BatchBalanceChecker = () => {
     chainId,
     openWalletModal,
   } = useWallet();
+  const [assetType, setAssetType] = useState<BalanceAssetType>("native");
+  const [tokenAddress, setTokenAddress] = useState("");
+  const [tokenSymbol, setTokenSymbol] = useState("");
+  const [tokenDecimals, setTokenDecimals] = useState(18);
   const [addressesText, setAddressesText] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [results, setResults] = useState<BalanceResult[]>([]);
@@ -47,7 +63,8 @@ const BatchBalanceChecker = () => {
     chainId === null
       ? "未连接"
       : `${networkName && networkName !== "unknown" ? networkName : "Chain"} (#${chainId})`;
-  const balanceSymbol = nativeCurrencySymbol || "ETH";
+  const balanceSymbol =
+    assetType === "erc20" ? tokenSymbol || "Token" : nativeCurrencySymbol || "ETH";
 
   const successfulResults = results.filter((item) => item.status === "success");
   const totalBalance = successfulResults.reduce((sum, item) => {
@@ -69,7 +86,7 @@ const BatchBalanceChecker = () => {
     setResults([]);
 
     if (!provider) {
-      setErrorMessage("请先连接钱包，使用当前钱包网络查询原生币余额");
+      setErrorMessage("请先连接钱包，使用当前钱包网络查询余额");
       openWalletModal();
       return;
     }
@@ -80,6 +97,56 @@ const BatchBalanceChecker = () => {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "地址解析失败");
       return;
+    }
+
+    let tokenContract: Contract | null = null;
+    let resolvedTokenSymbol = "Token";
+    let resolvedTokenDecimals = 18;
+
+    if (assetType === "erc20") {
+      let checksummedToken = "";
+      try {
+        checksummedToken = normalizeErc20TokenAddress(tokenAddress);
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "请输入有效的 ERC20 合约地址",
+        );
+        return;
+      }
+
+      try {
+        const code = await provider.getCode(checksummedToken);
+        if (code === "0x") {
+          throw new Error("当前链上未找到 ERC20 合约，请检查 Token 地址与钱包网络");
+        }
+
+        tokenContract = new Contract(checksummedToken, ERC20_BALANCE_ABI, provider);
+        const [symbolResult, decimalsResult] = await Promise.allSettled([
+          tokenContract.symbol(),
+          tokenContract.decimals(),
+        ]);
+
+        if (
+          symbolResult.status === "fulfilled" &&
+          typeof symbolResult.value === "string" &&
+          symbolResult.value.trim()
+        ) {
+          resolvedTokenSymbol = symbolResult.value.trim();
+        }
+
+        if (decimalsResult.status === "fulfilled") {
+          const nextDecimals = Number(decimalsResult.value);
+          if (Number.isInteger(nextDecimals) && nextDecimals >= 0) {
+            resolvedTokenDecimals = nextDecimals;
+          }
+        }
+
+        setTokenSymbol(resolvedTokenSymbol);
+        setTokenDecimals(resolvedTokenDecimals);
+      } catch (error) {
+        setErrorMessage("Token 信息读取失败：" + extractContractErrorMessage(error));
+        return;
+      }
     }
 
     const initialResults = addresses.map((address, index) => ({
@@ -94,10 +161,16 @@ const BatchBalanceChecker = () => {
       await Promise.all(
         addresses.map(async (address, index) => {
           try {
-            const balance = await provider.getBalance(address);
+            const balance =
+              assetType === "erc20" && tokenContract
+                ? ((await tokenContract.balanceOf(address)) as bigint)
+                : await provider.getBalance(address);
             updateResult(index, {
               status: "success",
-              balance: formatEther(balance),
+              balance:
+                assetType === "erc20"
+                  ? formatTokenBalance(balance, resolvedTokenDecimals)
+                  : formatEther(balance),
             });
           } catch (error) {
             updateResult(index, {
@@ -140,7 +213,7 @@ const BatchBalanceChecker = () => {
           批量查余额
         </h1>
         <p className="max-w-2xl text-sm text-slate-600 md:text-base">
-          输入一批 EVM 地址，使用当前连接钱包所在网络批量查询原生币余额。
+          输入一批 EVM 地址，使用当前连接钱包所在网络批量查询原生币或 ERC20 余额。
         </p>
       </div>
 
@@ -160,6 +233,56 @@ const BatchBalanceChecker = () => {
             {chainLabel}
           </button>
         </div>
+
+        <div className="mb-5 flex flex-wrap gap-2">
+          {[
+            { label: "原生币", value: "native" as const },
+            { label: "ERC20", value: "erc20" as const },
+          ].map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                assetType === item.value
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              }`}
+              onClick={() => {
+                setAssetType(item.value);
+                setErrorMessage("");
+                setCopyMessage("");
+                setResults([]);
+                if (item.value === "native") {
+                  setTokenSymbol("");
+                  setTokenDecimals(18);
+                }
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {assetType === "erc20" && (
+          <div className="mb-5">
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              ERC20 合约地址
+            </label>
+            <input
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+              value={tokenAddress}
+              onChange={(event) => {
+                setTokenAddress(event.target.value);
+                setTokenSymbol("");
+                setTokenDecimals(18);
+                setErrorMessage("");
+                setCopyMessage("");
+                setResults([]);
+              }}
+              placeholder="0x..."
+            />
+          </div>
+        )}
 
         <label className="mb-2 block text-sm font-medium text-slate-700">
           EVM 地址
@@ -231,7 +354,9 @@ const BatchBalanceChecker = () => {
           </div>
           {results.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-slate-500">
-              查询后会在这里显示每个地址的原生币余额
+              查询后会在这里显示每个地址的
+              {assetType === "erc20" ? " ERC20 Token " : "原生币"}
+              余额
             </div>
           ) : (
             <div className="divide-y divide-slate-100">

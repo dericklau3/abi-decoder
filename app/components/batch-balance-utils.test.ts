@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseBalanceAddressInput } from "./batch-balance-utils";
+import {
+  formatTokenBalance,
+  normalizeErc20TokenAddress,
+  parseBalanceAddressInput,
+} from "./batch-balance-utils";
 
 describe("batch-balance-utils", () => {
   test("parses addresses separated by newlines commas and spaces", () => {
@@ -36,5 +40,25 @@ describe("batch-balance-utils", () => {
     expect(() => parseBalanceAddressInput("0x123")).toThrow(
       "第 1 个地址格式无效",
     );
+  });
+
+  test("normalizes erc20 token address", () => {
+    expect(
+      normalizeErc20TokenAddress("000000000000000000000000000000000000dEaD"),
+    ).toBe("0x000000000000000000000000000000000000dEaD");
+  });
+
+  test("rejects invalid erc20 token address", () => {
+    expect(() => normalizeErc20TokenAddress("0x123")).toThrow(
+      "请输入有效的 ERC20 合约地址",
+    );
+  });
+
+  test("formats token balances by decimals", () => {
+    expect(formatTokenBalance(123456789n, 6)).toBe("123.456789");
+  });
+
+  test("falls back to raw balance for invalid decimals", () => {
+    expect(formatTokenBalance(123456789n, -1)).toBe("123456789");
   });
 });

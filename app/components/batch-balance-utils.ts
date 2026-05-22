@@ -1,4 +1,4 @@
-import { getAddress } from "ethers";
+import { formatUnits, getAddress } from "ethers";
 
 export const parseBalanceAddressInput = (value: string) => {
   const rawAddresses = value
@@ -31,4 +31,29 @@ export const parseBalanceAddressInput = (value: string) => {
   });
 
   return addresses;
+};
+
+export const normalizeErc20TokenAddress = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("请输入 ERC20 合约地址");
+  }
+
+  try {
+    return getAddress(trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`);
+  } catch {
+    throw new Error("请输入有效的 ERC20 合约地址");
+  }
+};
+
+export const formatTokenBalance = (balance: bigint, decimals: number) => {
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+    return balance.toString();
+  }
+
+  try {
+    return formatUnits(balance, decimals);
+  } catch {
+    return balance.toString();
+  }
 };
