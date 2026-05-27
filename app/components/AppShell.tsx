@@ -17,6 +17,7 @@ const navItems: NavItem[] = [
   { name: "JSON 格式化", href: "/json-formatter" },
   { name: "合约地址", href: "/contract-address" },
   { name: "合约交互", href: "/contract-interaction" },
+  { name: "StorageLayout", href: "/storage-layout" },
   { name: "批量转账", href: "/batch-transfer" },
   { name: "批量查余额", href: "/batch-balance" },
   { name: "批量调用", href: "/batch-call" },
