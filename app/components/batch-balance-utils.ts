@@ -1,5 +1,7 @@
 import { formatUnits, getAddress } from "ethers";
 
+export const MAX_BALANCE_ADDRESS_COUNT = 200;
+
 export const parseBalanceAddressInput = (value: string) => {
   const rawAddresses = value
     .split(/[\s,，;；]+/)
@@ -8,6 +10,9 @@ export const parseBalanceAddressInput = (value: string) => {
 
   if (rawAddresses.length === 0) {
     throw new Error("请至少输入一个 EVM 地址");
+  }
+  if (rawAddresses.length > MAX_BALANCE_ADDRESS_COUNT) {
+    throw new Error(`单次最多查询 ${MAX_BALANCE_ADDRESS_COUNT} 个地址`);
   }
 
   const seen = new Set<string>();
@@ -29,6 +34,10 @@ export const parseBalanceAddressInput = (value: string) => {
       addresses.push(checksummedAddress);
     }
   });
+
+  if (addresses.length > MAX_BALANCE_ADDRESS_COUNT) {
+    throw new Error(`单次最多查询 ${MAX_BALANCE_ADDRESS_COUNT} 个地址`);
+  }
 
   return addresses;
 };

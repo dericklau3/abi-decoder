@@ -3,6 +3,8 @@ import { AbiCoder, keccak256, toBeHex, zeroPadValue } from "ethers";
 
 import {
   decodeStorageValue,
+  getLongStorageBytesSlotCount,
+  MAX_LONG_STORAGE_BYTES_SLOTS,
   parseStorageLayout,
   resolveStoragePath,
 } from "./storage-layout-utils";
@@ -292,5 +294,12 @@ describe("storage-layout-utils", () => {
         path: "_name",
       }, ping),
     ).toBe("Ping");
+  });
+
+  test("rejects long storage bytes above the slot limit", () => {
+    expect(getLongStorageBytesSlotCount(4096n)).toBe(MAX_LONG_STORAGE_BYTES_SLOTS);
+    expect(() => getLongStorageBytesSlotCount(4097n)).toThrow(
+      "bytes/string 长度过大",
+    );
   });
 });

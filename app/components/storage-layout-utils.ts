@@ -70,6 +70,7 @@ export type SelectionStep =
     };
 
 const coder = AbiCoder.defaultAbiCoder();
+export const MAX_LONG_STORAGE_BYTES_SLOTS = 128;
 
 const normalizeSlot = (slot: bigint | string) => toBeHex(BigInt(slot), 32);
 
@@ -405,6 +406,17 @@ export const isLongStorageBytes = (word: string) => {
 export const getLongStorageBytesLength = (word: string) => {
   const normalized = normalizeWord(word);
   return (BigInt(normalized) - BigInt(1)) / BigInt(2);
+};
+
+export const getLongStorageBytesSlotCount = (
+  length: bigint,
+  maxSlots = MAX_LONG_STORAGE_BYTES_SLOTS,
+) => {
+  const slotsToRead = Math.ceil(Number(length) / 32);
+  if (!Number.isSafeInteger(slotsToRead) || slotsToRead > maxSlots) {
+    throw new Error(`bytes/string 长度过大，最多读取 ${maxSlots * 32} 字节`);
+  }
+  return slotsToRead;
 };
 
 export const decodeLongStorageBytes = (

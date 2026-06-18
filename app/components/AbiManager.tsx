@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import {
   hasDuplicateAbiName,
+  normalizeSavedAbiList,
   type SavedAbi,
 } from "./abi-manager-utils";
 
@@ -69,10 +70,10 @@ const AbiManager = () => {
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    const savedAbiList = safeJsonParse<Array<SavedAbi>>(
+    const savedAbiList = normalizeSavedAbiList(safeJsonParse<unknown>(
       localStorage.getItem(ABI_LIST_KEY) || "[]",
       [],
-    );
+    ));
     const currentAbi = localStorage.getItem(CURRENT_ABI_KEY) || "";
     setSavedAbis(savedAbiList);
     setAbiInput(currentAbi);

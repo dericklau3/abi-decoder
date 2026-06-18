@@ -13,6 +13,8 @@ import { extractContractErrorMessage } from "./contract-interaction-utils";
 
 const BATCH_TRANSFER_ADDRESS = "0x3b94A2aCAB8544B5d6cc11C0E18dAE2Df845E74A";
 const BSC_TESTNET_CHAIN_ID = 97;
+const BSC_TESTNET_REQUIRED_MESSAGE =
+  "请先切换到 BSC Testnet 后再授权或发起批量转账";
 
 const BATCH_TRANSFER_ABI = [
   "function batchTransferEth(address[] receivers,uint256 amount) payable",
@@ -72,6 +74,7 @@ const BatchTransfer = () => {
 
   const parsedDecimals = assetType === "erc721" ? 0 : Number(decimals);
   const effectiveAmountMode = assetType === "erc721" ? "varied" : amountMode;
+  const isExpectedChain = chainId === BSC_TESTNET_CHAIN_ID;
 
   const preview = useMemo(() => {
     try {
@@ -130,6 +133,11 @@ const BatchTransfer = () => {
         setApprovalStatus("idle");
         return;
       }
+      if (!isExpectedChain) {
+        setApprovalStatus("idle");
+        setApprovalMessage(BSC_TESTNET_REQUIRED_MESSAGE);
+        return;
+      }
 
       let checksummedToken = "";
       try {
@@ -176,7 +184,7 @@ const BatchTransfer = () => {
     return () => {
       isCanceled = true;
     };
-  }, [account, assetType, provider, preview.request, tokenAddress]);
+  }, [account, assetType, isExpectedChain, provider, preview.request, tokenAddress]);
 
   const handleApprove = async () => {
     setErrorMessage("");
@@ -191,6 +199,12 @@ const BatchTransfer = () => {
     }
     if (assetType === "eth") {
       setApprovalStatus("approved");
+      return;
+    }
+    if (!isExpectedChain) {
+      setApprovalStatus("idle");
+      setApprovalMessage(BSC_TESTNET_REQUIRED_MESSAGE);
+      setErrorMessage(BSC_TESTNET_REQUIRED_MESSAGE);
       return;
     }
 
@@ -262,6 +276,10 @@ const BatchTransfer = () => {
       setErrorMessage(preview.error || "请先填写有效参数");
       return;
     }
+    if (!isExpectedChain) {
+      setErrorMessage(BSC_TESTNET_REQUIRED_MESSAGE);
+      return;
+    }
     if (assetType !== "eth" && approvalStatus !== "approved") {
       setErrorMessage("请先完成 Token 授权，再发起批量转账");
       return;
@@ -301,6 +319,7 @@ const BatchTransfer = () => {
     Boolean(preview.request) &&
     !isSending &&
     !isApproving &&
+    isExpectedChain &&
     (!requiresApproval || approvalStatus === "approved");
   const chainLabel =
     chainId === null
@@ -332,7 +351,7 @@ const BatchTransfer = () => {
           </div>
           {chainId !== null && chainId !== BSC_TESTNET_CHAIN_ID && (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
-              当前不是 BSC Testnet
+              当前不是 BSC Testnet，已禁用授权与发送
             </span>
           )}
         </div>
@@ -506,6 +525,7 @@ const BatchTransfer = () => {
                 disabled={
                   isApproving ||
                   isSending ||
+                  !isExpectedChain ||
                   !preview.request ||
                   approvalStatus === "approved" ||
                   approvalStatus === "checking"

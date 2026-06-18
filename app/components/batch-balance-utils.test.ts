@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   formatTokenBalance,
+  MAX_BALANCE_ADDRESS_COUNT,
   normalizeErc20TokenAddress,
   parseBalanceAddressInput,
 } from "./batch-balance-utils";
@@ -39,6 +40,16 @@ describe("batch-balance-utils", () => {
   test("rejects invalid addresses with row position", () => {
     expect(() => parseBalanceAddressInput("0x123")).toThrow(
       "第 1 个地址格式无效",
+    );
+  });
+
+  test("rejects address lists above the batch limit", () => {
+    const addresses = Array.from({ length: MAX_BALANCE_ADDRESS_COUNT + 1 }, (_, index) =>
+      `0x${index.toString(16).padStart(40, "0")}`,
+    ).join("\n");
+
+    expect(() => parseBalanceAddressInput(addresses)).toThrow(
+      `单次最多查询 ${MAX_BALANCE_ADDRESS_COUNT} 个地址`,
     );
   });
 

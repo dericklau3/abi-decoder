@@ -1,5 +1,6 @@
 "use client";
 
+import "./wallet-console-guard";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import {
   injectedWallet,
@@ -20,7 +21,6 @@ import {
   sepolia,
 } from "wagmi/chains";
 import { WalletProvider } from "./WalletProvider";
-import WalletRuntimeErrorGuard from "./WalletRuntimeErrorGuard";
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 const wallets = walletConnectProjectId
@@ -68,7 +68,6 @@ export default function WalletRootProvider({ children }: { children: React.React
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider>
-          <WalletRuntimeErrorGuard />
           <WalletProvider>{children}</WalletProvider>
         </RainbowKitProvider>
       </QueryClientProvider>

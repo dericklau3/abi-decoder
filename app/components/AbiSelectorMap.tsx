@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ErrorFragment, EventFragment, FunctionFragment, Interface } from "ethers";
-
-type SavedAbi = { name: string; abi: string };
+import { normalizeSavedAbiList, type SavedAbi } from "./abi-manager-utils";
 
 type SelectorEntry = {
   name: string;
@@ -83,10 +82,10 @@ const AbiSelectorMap = () => {
   const [errorQuery, setErrorQuery] = useState("");
 
   useEffect(() => {
-    const savedAbiList = safeJsonParse<Array<SavedAbi>>(
+    const savedAbiList = normalizeSavedAbiList(safeJsonParse<unknown>(
       localStorage.getItem(ABI_LIST_KEY) || "[]",
       [],
-    );
+    ));
     const currentAbi = localStorage.getItem(CURRENT_ABI_KEY) || "";
 
     setSavedAbis(savedAbiList);

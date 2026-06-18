@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { Interface, type ParamType } from 'ethers';
 import { decodeDeployData } from 'viem';
+import { normalizeSavedAbiList, type SavedAbi } from './abi-manager-utils';
 import { roughDecodeCalldata, type RoughDecodedCallData } from './transaction-rough-decoder-utils';
 
-type SavedAbi = { name: string; abi: string };
 type RoughCandidateKind = 'address' | 'uint256' | 'raw';
 type DecodedParam = {
   name: string;
@@ -100,7 +100,9 @@ const TransactionDecoder = () => {
   // 添加 useEffect 来处理客户端数据加载
   useEffect(() => {
     // 在客户端加载保存的数据
-    const savedAbiList = safeJsonParse<Array<SavedAbi>>(localStorage.getItem(ABI_LIST_KEY) || '[]', []);
+    const savedAbiList = normalizeSavedAbiList(
+      safeJsonParse<unknown>(localStorage.getItem(ABI_LIST_KEY) || '[]', []),
+    );
     const currentAbi = localStorage.getItem(CURRENT_ABI_KEY) || '';
 
     setSavedAbis(savedAbiList);

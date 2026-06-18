@@ -13,6 +13,7 @@ import {
   decodeLongStorageBytes,
   decodeStorageValue,
   getLongStorageBytesLength,
+  getLongStorageBytesSlotCount,
   isLongStorageBytes,
   parseStorageLayout,
   resolveStoragePath,
@@ -373,7 +374,7 @@ const StorageLayout = () => {
           if (finalType?.encoding === "bytes" && isLongStorageBytes(raw)) {
             const length = getLongStorageBytesLength(raw);
             const dataSlot = BigInt(keccak256(zeroPadValue(finalPath.slot, 32)));
-            const slotsToRead = Math.ceil(Number(length) / 32);
+            const slotsToRead = getLongStorageBytesSlotCount(length);
             const words = await Promise.all(
               Array.from({ length: slotsToRead }, (_, index) =>
                 provider.getStorage(contractAddress, toBeHex(dataSlot + BigInt(index), 32)),

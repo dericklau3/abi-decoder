@@ -26,6 +26,8 @@ const ERC20_BALANCE_ABI = [
   "function symbol() view returns (string)",
 ];
 
+const BALANCE_QUERY_BATCH_SIZE = 10;
+
 const shortAddress = (address: string) =>
   address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "";
 
@@ -158,28 +160,32 @@ const BatchBalanceChecker = () => {
 
     try {
       setIsQuerying(true);
-      await Promise.all(
-        addresses.map(async (address, index) => {
-          try {
-            const balance =
-              assetType === "erc20" && tokenContract
-                ? ((await tokenContract.balanceOf(address)) as bigint)
-                : await provider.getBalance(address);
-            updateResult(index, {
-              status: "success",
-              balance:
-                assetType === "erc20"
-                  ? formatTokenBalance(balance, resolvedTokenDecimals)
-                  : formatEther(balance),
-            });
-          } catch (error) {
-            updateResult(index, {
-              status: "failed",
-              error: extractContractErrorMessage(error),
-            });
-          }
-        }),
-      );
+      for (let start = 0; start < addresses.length; start += BALANCE_QUERY_BATCH_SIZE) {
+        const batch = addresses.slice(start, start + BALANCE_QUERY_BATCH_SIZE);
+        await Promise.all(
+          batch.map(async (address, batchIndex) => {
+            const index = start + batchIndex;
+            try {
+              const balance =
+                assetType === "erc20" && tokenContract
+                  ? ((await tokenContract.balanceOf(address)) as bigint)
+                  : await provider.getBalance(address);
+              updateResult(index, {
+                status: "success",
+                balance:
+                  assetType === "erc20"
+                    ? formatTokenBalance(balance, resolvedTokenDecimals)
+                    : formatEther(balance),
+              });
+            } catch (error) {
+              updateResult(index, {
+                status: "failed",
+                error: extractContractErrorMessage(error),
+              });
+            }
+          }),
+        );
+      }
     } finally {
       setIsQuerying(false);
     }
