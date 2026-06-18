@@ -26,6 +26,17 @@ const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 const wallets = walletConnectProjectId
   ? [injectedWallet, walletConnectWallet]
   : [injectedWallet];
+const RPC_URLS = {
+  mainnet: "https://ethereum-rpc.publicnode.com",
+  bsc: "https://bsc-rpc.publicnode.com",
+  bscTestnet: "https://bsc-testnet-rpc.publicnode.com",
+  polygon: "https://polygon-bor-rpc.publicnode.com",
+  base: "https://base-rpc.publicnode.com",
+  optimism: "https://optimism-rpc.publicnode.com",
+  arbitrum: "https://arbitrum-one-rpc.publicnode.com",
+  avalanche: "https://avalanche-c-chain-rpc.publicnode.com",
+  sepolia: "https://ethereum-sepolia-rpc.publicnode.com",
+} as const;
 
 const config = getDefaultConfig({
   appName: "EVM Toolkit",
@@ -48,15 +59,15 @@ const config = getDefaultConfig({
     sepolia,
   ],
   transports: {
-    [mainnet.id]: http(),
-    [bsc.id]: http(),
-    [bscTestnet.id]: http(),
-    [polygon.id]: http(),
-    [base.id]: http(),
-    [optimism.id]: http(),
-    [arbitrum.id]: http(),
-    [avalanche.id]: http(),
-    [sepolia.id]: http(),
+    [mainnet.id]: http(RPC_URLS.mainnet),
+    [bsc.id]: http(RPC_URLS.bsc),
+    [bscTestnet.id]: http(RPC_URLS.bscTestnet),
+    [polygon.id]: http(RPC_URLS.polygon),
+    [base.id]: http(RPC_URLS.base),
+    [optimism.id]: http(RPC_URLS.optimism),
+    [arbitrum.id]: http(RPC_URLS.arbitrum),
+    [avalanche.id]: http(RPC_URLS.avalanche),
+    [sepolia.id]: http(RPC_URLS.sepolia),
   },
   ssr: true,
 });
