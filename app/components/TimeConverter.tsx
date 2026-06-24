@@ -10,8 +10,11 @@ import {
   BlockTimestampPoint,
   estimateFutureBlockForTimestamp,
   estimateFutureTimestampForBlock,
+  formatCountdownRemaining,
   formatTimestampSecondsInZone,
+  getCountdownRemainingParts,
   isFutureTimestamp,
+  parseCountdownTimestampInput,
   parseBlockHeightInput,
   timeTextToTimestampSeconds,
 } from "./time-utils";
@@ -106,8 +109,42 @@ const TimeConverter = () => {
   const [latestBlockNumber, setLatestBlockNumber] = useState("");
   const [latestBlockError, setLatestBlockError] = useState("");
   const [isLatestBlockLoading, setIsLatestBlockLoading] = useState(false);
+  const [countdownInput, setCountdownInput] = useState("");
+  const [countdownNowTimestamp, setCountdownNowTimestamp] = useState(() =>
+    Math.floor(Date.now() / 1000),
+  );
 
   const selectedChain = CHAIN_TIME_CONFIGS[chainKey];
+  const countdownTarget = (() => {
+    if (!countdownInput.trim()) {
+      return null;
+    }
+
+    try {
+      return parseCountdownTimestampInput(countdownInput);
+    } catch {
+      return null;
+    }
+  })();
+  const countdownRemaining =
+    countdownTarget === null
+      ? null
+      : getCountdownRemainingParts(countdownTarget, countdownNowTimestamp);
+  const countdownError = (() => {
+    if (!countdownInput.trim()) {
+      return "";
+    }
+
+    try {
+      const targetTimestamp = parseCountdownTimestampInput(countdownInput);
+      if (!isFutureTimestamp(targetTimestamp, countdownNowTimestamp)) {
+        return "这个时间戳已经到达或已经过去";
+      }
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message : "倒计时解析失败";
+    }
+  })();
   const targetTimestampPreview = (() => {
     if (!targetTimeInput.trim()) {
       return null;
@@ -208,6 +245,16 @@ const TimeConverter = () => {
   const fillCurrentTime = () => {
     applyTimestamp(Math.floor(Date.now() / 1000).toString());
   };
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setCountdownNowTimestamp(Math.floor(Date.now() / 1000));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, []);
 
   const handleCopy = async (value: string, label: string) => {
     if (!value) {
@@ -550,6 +597,73 @@ const TimeConverter = () => {
 
         {copyMessage && (
           <div className="mt-3 text-xs text-slate-500">{copyMessage}</div>
+        )}
+      </section>
+
+      <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+        <div className="mb-5">
+          <h2 className="text-lg font-semibold text-slate-900">倒计时</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            输入一个未来的秒级时间戳，页面会按当前浏览器时间实时计算剩余时间。
+          </p>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              未来时间戳（秒）
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+              value={countdownInput}
+              onChange={(event) => setCountdownInput(event.target.value)}
+              placeholder="例如 1780000000"
+            />
+            {countdownTarget !== null && (
+              <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
+                <div>
+                  北京时间：{" "}
+                  <span className="font-mono text-slate-700">
+                    {formatTimestampSecondsInZone(
+                      countdownTarget.toString(),
+                      SHANGHAI_TIME_ZONE,
+                    )}
+                  </span>
+                </div>
+                <div>
+                  美东时间：{" "}
+                  <span className="font-mono text-slate-700">
+                    {formatTimestampSecondsInZone(
+                      countdownTarget.toString(),
+                      EASTERN_TIME_ZONE,
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-sm font-medium text-slate-700">剩余时间</div>
+            <div className="mt-3 font-mono text-3xl font-semibold text-slate-900">
+              {countdownRemaining
+                ? formatCountdownRemaining(countdownRemaining)
+                : "--:--:--"}
+            </div>
+            <div className="mt-3 text-xs text-slate-500">
+              {countdownRemaining
+                ? `剩余 ${countdownRemaining.totalSeconds.toLocaleString()} 秒`
+                : "等待输入未来秒级时间戳"}
+            </div>
+          </div>
+        </div>
+
+        {countdownError && (
+          <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {countdownError}
+          </div>
         )}
       </section>
 

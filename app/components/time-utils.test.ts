@@ -7,8 +7,11 @@ import {
   blockNumberToRpcQuantity,
   estimateFutureBlockForTimestamp,
   estimateFutureTimestampForBlock,
+  formatCountdownRemaining,
   formatTimestampSecondsInZone,
+  getCountdownRemainingParts,
   isFutureTimestamp,
+  parseCountdownTimestampInput,
   parseTimeText,
   parseBlockHeightInput,
   rpcQuantityToBigInt,
@@ -106,5 +109,50 @@ describe("time-utils", () => {
     expect(isFutureTimestamp(101, 100)).toBe(true);
     expect(isFutureTimestamp(100, 100)).toBe(false);
     expect(isFutureTimestamp(99, 100)).toBe(false);
+  });
+
+  test("parses countdown timestamp input", () => {
+    expect(parseCountdownTimestampInput(" 1780000000 ")).toBe(1780000000);
+  });
+
+  test("rejects malformed countdown timestamp input", () => {
+    expect(() => parseCountdownTimestampInput("1780.5")).toThrow(
+      "请输入有效的秒级时间戳",
+    );
+  });
+
+  test("splits countdown remaining seconds into day and time parts", () => {
+    expect(getCountdownRemainingParts(186_461, 100_000)).toEqual({
+      totalSeconds: 86_461,
+      days: 1,
+      hours: 0,
+      minutes: 1,
+      seconds: 1,
+      isComplete: false,
+    });
+  });
+
+  test("marks countdown as complete after target time", () => {
+    expect(getCountdownRemainingParts(100, 101)).toEqual({
+      totalSeconds: 0,
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+      isComplete: true,
+    });
+  });
+
+  test("formats countdown remaining text", () => {
+    expect(
+      formatCountdownRemaining({
+        totalSeconds: 86_461,
+        days: 1,
+        hours: 0,
+        minutes: 1,
+        seconds: 1,
+        isComplete: false,
+      }),
+    ).toBe("1 天 00:01:01");
   });
 });

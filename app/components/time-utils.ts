@@ -14,6 +14,15 @@ export type BlockTimestampPoint = {
   timestamp: number;
 };
 
+export type CountdownRemainingParts = {
+  totalSeconds: number;
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  isComplete: boolean;
+};
+
 export const CHAIN_TIME_CONFIGS: Record<ChainTimeKey, ChainTimeConfig> = {
   bsc: {
     label: "BSC",
@@ -263,3 +272,53 @@ export const estimateFutureBlockForTimestamp = ({
 
 export const isFutureTimestamp = (targetTimestamp: number, nowTimestamp: number) =>
   targetTimestamp > nowTimestamp;
+
+export const parseCountdownTimestampInput = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("请输入未来的秒级时间戳");
+  }
+
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error("请输入有效的秒级时间戳");
+  }
+
+  const timestamp = Number.parseInt(trimmed, 10);
+  if (!Number.isSafeInteger(timestamp)) {
+    throw new Error("时间戳超出浏览器可安全计算范围");
+  }
+
+  return timestamp;
+};
+
+export const getCountdownRemainingParts = (
+  targetTimestamp: number,
+  nowTimestamp: number,
+): CountdownRemainingParts => {
+  const totalSeconds = Math.max(0, targetTimestamp - nowTimestamp);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return {
+    totalSeconds,
+    days,
+    hours,
+    minutes,
+    seconds,
+    isComplete: totalSeconds === 0,
+  };
+};
+
+export const formatCountdownRemaining = (parts: CountdownRemainingParts) => {
+  const timeText = [parts.hours, parts.minutes, parts.seconds]
+    .map((part) => part.toString().padStart(2, "0"))
+    .join(":");
+
+  if (parts.days > 0) {
+    return `${parts.days} 天 ${timeText}`;
+  }
+
+  return timeText;
+};
