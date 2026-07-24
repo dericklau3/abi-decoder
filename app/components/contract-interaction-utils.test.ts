@@ -4,9 +4,13 @@ import {
   appendTransactionOverrides,
   encodeFunctionCalldata,
   extractContractErrorMessage,
+  getArgumentInputValue,
+  hasMissingArgumentInputs,
+  isIntegerParamType,
   isUserRejectedWalletRequest,
   normalizeAddressInput,
   parseArgumentValue,
+  setArgumentInputValue,
 } from "./contract-interaction-utils";
 
 describe("contract-interaction-utils", () => {
@@ -22,6 +26,106 @@ describe("contract-interaction-utils", () => {
 
   test("parses array arguments from json", () => {
     expect(parseArgumentValue("uint256[]", "[\"1\", \"2\"]")).toEqual([1n, 2n]);
+  });
+
+  test("does not treat tuple arguments as integer parameters", () => {
+    const input = {
+      name: "user",
+      type: "tuple",
+      components: [
+        { name: "account", type: "address" },
+        { name: "amount", type: "uint256" },
+      ],
+    };
+
+    expect(isIntegerParamType(input)).toBe(false);
+  });
+
+  test("encodes calldata for tuple arguments from abi input definitions", () => {
+    const abi = [
+      {
+        type: "function",
+        name: "setUser",
+        stateMutability: "nonpayable",
+        inputs: [
+          {
+            name: "user",
+            type: "tuple",
+            components: [
+              { name: "account", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+          },
+        ],
+        outputs: [],
+      },
+    ];
+
+    expect(
+      encodeFunctionCalldata(
+        abi,
+        "setUser((address,uint256))",
+        [
+          {
+            name: "user",
+            type: "tuple",
+            components: [
+              { name: "account", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+          },
+        ],
+        [
+          JSON.stringify({
+            account: "000000000000000000000000000000000000dead",
+            amount: "5",
+          }),
+        ],
+      ),
+    ).toBe(
+      "0x095ede30000000000000000000000000000000000000000000000000000000000000dead0000000000000000000000000000000000000000000000000000000000000005",
+    );
+  });
+
+  test("assembles expanded tuple field inputs for calldata encoding", () => {
+    const abi = [
+      {
+        type: "function",
+        name: "setUser",
+        stateMutability: "nonpayable",
+        inputs: [
+          {
+            name: "user",
+            type: "tuple",
+            components: [
+              { name: "account", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+          },
+        ],
+        outputs: [],
+      },
+    ];
+    const inputs = abi[0].inputs;
+    let inputValues = {};
+    inputValues = setArgumentInputValue(inputValues, "0.0", "000000000000000000000000000000000000dead");
+    inputValues = setArgumentInputValue(inputValues, "0.1", "5");
+
+    expect(hasMissingArgumentInputs(inputs, inputValues)).toBe(false);
+    expect(getArgumentInputValue(inputs[0], inputValues, "0")).toEqual({
+      account: "000000000000000000000000000000000000dead",
+      amount: "5",
+    });
+    expect(
+      encodeFunctionCalldata(
+        abi,
+        "setUser((address,uint256))",
+        inputs,
+        inputValues,
+      ),
+    ).toBe(
+      "0x095ede30000000000000000000000000000000000000000000000000000000000000dead0000000000000000000000000000000000000000000000000000000000000005",
+    );
   });
 
   test("preserves string whitespace", () => {

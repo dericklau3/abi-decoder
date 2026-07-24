@@ -2,14 +2,16 @@ import { FunctionFragment, Interface, parseEther, Wallet } from "ethers";
 
 import {
   appendTransactionOverrides,
+  type AbiInputParam,
   parseArgumentValue,
+  serializeParamType,
 } from "./contract-interaction-utils";
 
 export type BatchCallFunctionInfo = {
   signature: string;
   name: string;
   stateMutability: string;
-  inputs: Array<{ name: string; type: string }>;
+  inputs: AbiInputParam[];
 };
 
 export type PrivateKeyAddressPreview = {
@@ -79,10 +81,7 @@ export const getWritableFunctionInfos = (
       signature: fn.format(),
       name: fn.name,
       stateMutability: fn.stateMutability ?? "nonpayable",
-      inputs: fn.inputs.map((input) => ({
-        name: input.name,
-        type: input.type,
-      })),
+      inputs: fn.inputs.map(serializeParamType),
     }));
 };
 
@@ -93,7 +92,7 @@ export const prepareBatchCallArgs = (
 ) =>
   appendTransactionOverrides(
     fn.inputs.map((input, index) =>
-      parseArgumentValue(input.type, rawInputs[index] ?? ""),
+      parseArgumentValue(input, rawInputs[index] ?? ""),
     ),
     fn.stateMutability,
     payableValue,

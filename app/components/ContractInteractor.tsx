@@ -14,10 +14,18 @@ import {
   appendTransactionOverrides,
   encodeFunctionCalldata,
   extractContractErrorMessage,
+  type AbiInputParam,
+  type ArgumentInputValues,
+  type ArgumentUnitValues,
   type IntegerUnit,
+  hasMissingArgumentInputs,
+  isExpandableTupleParam,
   isIntegerParamType,
   normalizeAddressInput,
-  parseArgumentValue,
+  parseArgumentInputs,
+  serializeParamType,
+  setArgumentInputValue,
+  setArgumentUnitValue,
 } from "./contract-interaction-utils";
 
 type SavedAbi = { name: string; abi: string };
@@ -26,8 +34,8 @@ type FunctionInfo = {
   signature: string;
   name: string;
   stateMutability: string;
-  inputs: Array<{ name: string; type: string }>;
-  outputs: Array<{ name: string; type: string }>;
+  inputs: AbiInputParam[];
+  outputs: AbiInputParam[];
 };
 
 const INTEGER_UNITS: Array<IntegerUnit> = ["wei", "gwei", "ether"];
@@ -103,8 +111,8 @@ const ContractInteractor = () => {
   const [savedAbis, setSavedAbis] = useState<Array<SavedAbi>>([]);
   const [selectedAbiIndex, setSelectedAbiIndex] = useState<number | null>(null);
   const [expandedSignatures, setExpandedSignatures] = useState<Record<string, boolean>>({});
-  const [argInputs, setArgInputs] = useState<Record<string, string[]>>({});
-  const [argUnits, setArgUnits] = useState<Record<string, IntegerUnit[]>>({});
+  const [argInputs, setArgInputs] = useState<Record<string, ArgumentInputValues>>({});
+  const [argUnits, setArgUnits] = useState<Record<string, ArgumentUnitValues>>({});
   const [payableValues, setPayableValues] = useState<Record<string, string>>({});
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [injected, setInjected] = useState<ReturnType<typeof useWallet>["injected"]>(null);
@@ -168,15 +176,9 @@ const ContractInteractor = () => {
             signature: fn.format(),
             name: fn.name,
             stateMutability: fn.stateMutability ?? "nonpayable",
-            inputs: fn.inputs.map((input) => ({
-              name: input.name,
-              type: input.type,
-            })),
+            inputs: fn.inputs.map(serializeParamType),
             outputs:
-              fn.outputs?.map((output) => ({
-                name: output.name,
-                type: output.type,
-              })) ?? [],
+              fn.outputs?.map(serializeParamType) ?? [],
           };
         });
     } catch {
@@ -206,12 +208,9 @@ const ContractInteractor = () => {
       return { data: "", error: "" };
     }
 
-    const currentInputs = argInputs[fn.signature] ?? [];
-    const currentUnits = argUnits[fn.signature] ?? [];
-    const hasMissingInput = fn.inputs.some(
-      (_, index) => !(currentInputs[index] ?? "").trim(),
-    );
-    if (hasMissingInput) {
+    const currentInputs = argInputs[fn.signature] ?? {};
+    const currentUnits = argUnits[fn.signature] ?? {};
+    if (hasMissingArgumentInputs(fn.inputs, currentInputs)) {
       return { data: "", error: "填写参数后生成调用 data" };
     }
 
@@ -265,25 +264,23 @@ const ContractInteractor = () => {
     }));
   };
 
-  const updateArgInput = (signature: string, index: number, value: string) => {
+  const updateArgInput = (signature: string, path: string, value: string) => {
     setArgInputs((prev) => {
-      const next = {
+      const current = prev[signature] ?? {};
+      return {
         ...prev,
-        [signature]: [...(prev[signature] ?? [])],
+        [signature]: setArgumentInputValue(current, path, value),
       };
-      next[signature][index] = value;
-      return next;
     });
   };
 
-  const updateArgUnit = (signature: string, index: number, unit: IntegerUnit) => {
+  const updateArgUnit = (signature: string, path: string, unit: IntegerUnit) => {
     setArgUnits((prev) => {
-      const next = {
+      const current = prev[signature] ?? {};
+      return {
         ...prev,
-        [signature]: [...(prev[signature] ?? [])],
+        [signature]: setArgumentUnitValue(current, path, unit),
       };
-      next[signature][index] = unit;
-      return next;
     });
   };
 
@@ -338,11 +335,8 @@ const ContractInteractor = () => {
   };
 
   const ensureInputs = (fn: FunctionInfo) => {
-    const currentInputs = argInputs[fn.signature] ?? [];
-    const missing = fn.inputs.some(
-      (_, index) => !(currentInputs[index] ?? "").trim(),
-    );
-    if (missing) {
+    const currentInputs = argInputs[fn.signature] ?? {};
+    if (hasMissingArgumentInputs(fn.inputs, currentInputs)) {
       setFunctionError(fn.signature, "请填写所有参数");
       return false;
     }
@@ -375,15 +369,9 @@ const ContractInteractor = () => {
         throw new Error("当前链上未找到该合约地址，请检查合约地址与钱包网络是否匹配");
       }
       const contract = new Contract(checksummed, abi, provider);
-      const currentInputs = argInputs[fnInfo.signature] ?? [];
-      const currentUnits = argUnits[fnInfo.signature] ?? [];
-      const args = fnInfo.inputs.map((_, index) =>
-        parseArgumentValue(
-          fnInfo.inputs[index]?.type ?? "string",
-          currentInputs[index] ?? "",
-          currentUnits[index] ?? "wei",
-        ),
-      );
+      const currentInputs = argInputs[fnInfo.signature] ?? {};
+      const currentUnits = argUnits[fnInfo.signature] ?? {};
+      const args = parseArgumentInputs(fnInfo.inputs, currentInputs, currentUnits);
       const fn = contract.getFunction(fnInfo.signature);
       const result = await fn(...args);
       setResultOutputs((prev) => ({
@@ -427,15 +415,9 @@ const ContractInteractor = () => {
         throw new Error("当前链上未找到该合约地址，请检查合约地址与钱包网络是否匹配");
       }
       const contract = new Contract(checksummed, abi, signer);
-      const currentInputs = argInputs[fnInfo.signature] ?? [];
-      const currentUnits = argUnits[fnInfo.signature] ?? [];
-      const args = fnInfo.inputs.map((_, index) =>
-        parseArgumentValue(
-          fnInfo.inputs[index]?.type ?? "string",
-          currentInputs[index] ?? "",
-          currentUnits[index] ?? "wei",
-        ),
-      );
+      const currentInputs = argInputs[fnInfo.signature] ?? {};
+      const currentUnits = argUnits[fnInfo.signature] ?? {};
+      const args = parseArgumentInputs(fnInfo.inputs, currentInputs, currentUnits);
       const fn = contract.getFunction(fnInfo.signature);
       const txArgs = appendTransactionOverrides(
         args,
@@ -459,6 +441,86 @@ const ContractInteractor = () => {
     } finally {
       setFunctionLoading(fnInfo.signature, false);
     }
+  };
+
+  const renderArgumentInput = (
+    signature: string,
+    input: AbiInputParam,
+    path: string,
+    fallbackLabel: string,
+  ) => {
+    const label = input.name || fallbackLabel;
+    const currentInputs = argInputs[signature] ?? {};
+    const currentUnits = argUnits[signature] ?? {};
+
+    if (isExpandableTupleParam(input)) {
+      return (
+        <div
+          key={path}
+          className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2"
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-800">{label}</span>
+            <span className="text-xs text-slate-400">{input.type}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {input.components!.map((component, index) =>
+              renderArgumentInput(
+                signature,
+                component,
+                `${path}.${index}`,
+                `${label}.${component.name || index}`,
+              ),
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={path}>
+        <label className="mb-2 block text-sm font-medium text-slate-700">
+          {label}{" "}
+          <span className="text-xs text-slate-400">
+            {input.type}
+          </span>
+        </label>
+        <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400">
+          <input
+            type="text"
+            className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none"
+            value={currentInputs[path] ?? ""}
+            onChange={(e) =>
+              updateArgInput(
+                signature,
+                path,
+                e.target.value,
+              )
+            }
+            placeholder="请输入参数值"
+          />
+          {isIntegerParamType(input) && (
+            <select
+              className="w-24 border-l border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600 focus:outline-none"
+              value={currentUnits[path] ?? "wei"}
+              onChange={(e) =>
+                updateArgUnit(
+                  signature,
+                  path,
+                  e.target.value as IntegerUnit,
+                )
+              }
+            >
+              {INTEGER_UNITS.map((unit) => (
+                <option key={unit} value={unit}>
+                  {unit}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -685,54 +747,14 @@ const ContractInteractor = () => {
                                   此函数无输入参数
                                 </div>
                               )}
-                              {item.inputs.map((input, index) => (
-                                <div key={`${input.name || "arg"}-${index}`}>
-                                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                                    {input.name || `参数 ${index + 1}`}{" "}
-                                    <span className="text-xs text-slate-400">
-                                      {input.type}
-                                    </span>
-                                  </label>
-                                  <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400">
-                                    <input
-                                      type="text"
-                                      className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none"
-                                      value={
-                                        (argInputs[item.signature] ?? [])[index] ?? ""
-                                      }
-                                      onChange={(e) =>
-                                        updateArgInput(
-                                          item.signature,
-                                          index,
-                                          e.target.value,
-                                        )
-                                      }
-                                      placeholder="请输入参数值"
-                                    />
-                                    {isIntegerParamType(input.type) && (
-                                      <select
-                                        className="w-24 border-l border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600 focus:outline-none"
-                                        value={
-                                          (argUnits[item.signature] ?? [])[index] ?? "wei"
-                                        }
-                                        onChange={(e) =>
-                                          updateArgUnit(
-                                            item.signature,
-                                            index,
-                                            e.target.value as IntegerUnit,
-                                          )
-                                        }
-                                      >
-                                        {INTEGER_UNITS.map((unit) => (
-                                          <option key={unit} value={unit}>
-                                            {unit}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
+                              {item.inputs.map((input, index) =>
+                                renderArgumentInput(
+                                  item.signature,
+                                  input,
+                                  String(index),
+                                  `参数 ${index + 1}`,
+                                ),
+                              )}
                             </div>
 
                             <div className="mt-4 flex flex-wrap gap-3">
@@ -837,54 +859,14 @@ const ContractInteractor = () => {
                                   此函数无输入参数
                                 </div>
                               )}
-                              {item.inputs.map((input, index) => (
-                                <div key={`${input.name || "arg"}-${index}`}>
-                                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                                    {input.name || `参数 ${index + 1}`}{" "}
-                                    <span className="text-xs text-slate-400">
-                                      {input.type}
-                                    </span>
-                                  </label>
-                                  <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400">
-                                    <input
-                                      type="text"
-                                      className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none"
-                                      value={
-                                        (argInputs[item.signature] ?? [])[index] ?? ""
-                                      }
-                                      onChange={(e) =>
-                                        updateArgInput(
-                                          item.signature,
-                                          index,
-                                          e.target.value,
-                                        )
-                                      }
-                                      placeholder="请输入参数值"
-                                    />
-                                    {isIntegerParamType(input.type) && (
-                                      <select
-                                        className="w-24 border-l border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600 focus:outline-none"
-                                        value={
-                                          (argUnits[item.signature] ?? [])[index] ?? "wei"
-                                        }
-                                        onChange={(e) =>
-                                          updateArgUnit(
-                                            item.signature,
-                                            index,
-                                            e.target.value as IntegerUnit,
-                                          )
-                                        }
-                                      >
-                                        {INTEGER_UNITS.map((unit) => (
-                                          <option key={unit} value={unit}>
-                                            {unit}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
+                              {item.inputs.map((input, index) =>
+                                renderArgumentInput(
+                                  item.signature,
+                                  input,
+                                  String(index),
+                                  `参数 ${index + 1}`,
+                                ),
+                              )}
                             </div>
 
                             {item.stateMutability === "payable" && (

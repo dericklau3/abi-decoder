@@ -2,6 +2,15 @@ import { getAddress, Interface, ParamType, parseUnits } from "ethers";
 
 export type IntegerUnit = "wei" | "gwei" | "ether";
 
+export type AbiInputParam = {
+  name?: string;
+  type: string;
+  components?: AbiInputParam[];
+};
+
+export type ArgumentInputValues = Record<string, string>;
+export type ArgumentUnitValues = Record<string, IntegerUnit>;
+
 const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -24,8 +33,113 @@ const isIntegerType = (baseType: string) =>
   baseType.startsWith("int") ||
   baseType.startsWith("uint");
 
-export const isIntegerParamType = (type: string) =>
-  isIntegerType(ParamType.from(type).baseType);
+const toParamType = (input: string | AbiInputParam) =>
+  ParamType.from(input as string);
+
+const getTupleComponents = (
+  param: ParamType,
+): readonly ParamType[] | null | undefined => {
+  if (param.components) {
+    return param.components;
+  }
+  if (param.baseType === "array" && param.arrayChildren) {
+    return getTupleComponents(param.arrayChildren);
+  }
+  return undefined;
+};
+
+export const serializeParamType = (param: ParamType): AbiInputParam => {
+  const tupleComponents = getTupleComponents(param);
+
+  return {
+    name: param.name,
+    type: param.type,
+    ...(tupleComponents
+      ? { components: tupleComponents.map(serializeParamType) }
+      : {}),
+  };
+};
+
+export const isIntegerParamType = (type: string | AbiInputParam) =>
+  isIntegerType(toParamType(type).baseType);
+
+export const isExpandableTupleParam = (
+  input: string | AbiInputParam,
+): input is AbiInputParam & { components: AbiInputParam[] } =>
+  typeof input !== "string" &&
+  input.type === "tuple" &&
+  Boolean(input.components?.length);
+
+export const setArgumentInputValue = (
+  values: ArgumentInputValues,
+  path: string,
+  value: string,
+): ArgumentInputValues => ({
+  ...values,
+  [path]: value,
+});
+
+export const setArgumentUnitValue = (
+  values: ArgumentUnitValues,
+  path: string,
+  value: IntegerUnit,
+): ArgumentUnitValues => ({
+  ...values,
+  [path]: value,
+});
+
+const getRawInputAtPath = (
+  values: string[] | ArgumentInputValues,
+  path: string,
+) => (Array.isArray(values) ? values[Number(path)] ?? "" : values[path] ?? "");
+
+const getUnitAtPath = (
+  values: IntegerUnit[] | ArgumentUnitValues,
+  path: string,
+) => (Array.isArray(values) ? values[Number(path)] ?? "wei" : values[path] ?? "wei");
+
+export const getArgumentInputValue = (
+  input: string | AbiInputParam,
+  values: string[] | ArgumentInputValues,
+  path: string,
+): unknown => {
+  if (!isExpandableTupleParam(input)) {
+    return getRawInputAtPath(values, path);
+  }
+
+  return input.components.reduce<Record<string, unknown>>(
+    (tupleValue, component, index) => {
+      const key = component.name || String(index);
+      tupleValue[key] = getArgumentInputValue(component, values, `${path}.${index}`);
+      return tupleValue;
+    },
+    {},
+  );
+};
+
+const hasMissingArgumentInput = (
+  input: string | AbiInputParam,
+  values: string[] | ArgumentInputValues,
+  path: string,
+): boolean => {
+  if (isExpandableTupleParam(input)) {
+    if (getRawInputAtPath(values, path).trim()) {
+      return false;
+    }
+    return input.components.some((component, index) =>
+      hasMissingArgumentInput(component, values, `${path}.${index}`),
+    );
+  }
+  return !getRawInputAtPath(values, path).trim();
+};
+
+export const hasMissingArgumentInputs = (
+  inputs: Array<string | AbiInputParam>,
+  values: string[] | ArgumentInputValues,
+) =>
+  inputs.some((input, index) =>
+    hasMissingArgumentInput(input, values, String(index)),
+  );
 
 const integerUnitDecimals: Record<IntegerUnit, number> = {
   wei: 0,
@@ -151,22 +265,52 @@ const coerceByParamType = (
 };
 
 export const parseArgumentValue = (
-  type: string,
+  type: string | AbiInputParam,
   value: string,
   unit: IntegerUnit = "wei",
-) => coerceByParamType(ParamType.from(type), value, unit);
+) => coerceByParamType(toParamType(type), value, unit);
+
+const parseArgumentInput = (
+  input: string | AbiInputParam,
+  values: string[] | ArgumentInputValues,
+  units: IntegerUnit[] | ArgumentUnitValues,
+  path: string,
+): unknown => {
+  const param = toParamType(input);
+  if (isExpandableTupleParam(input)) {
+    const rawTupleInput = getRawInputAtPath(values, path);
+    if (rawTupleInput.trim()) {
+      return coerceByParamType(param, rawTupleInput, getUnitAtPath(units, path));
+    }
+    return input.components.map((component, index) =>
+      parseArgumentInput(component, values, units, `${path}.${index}`),
+    );
+  }
+  return coerceByParamType(
+    param,
+    getRawInputAtPath(values, path),
+    getUnitAtPath(units, path),
+  );
+};
+
+export const parseArgumentInputs = (
+  inputs: Array<string | AbiInputParam>,
+  values: string[] | ArgumentInputValues,
+  units: IntegerUnit[] | ArgumentUnitValues = [],
+) =>
+  inputs.map((input, index) =>
+    parseArgumentInput(input, values, units, String(index)),
+  );
 
 export const encodeFunctionCalldata = (
   abi: any[],
   signature: string,
-  inputs: Array<{ type: string }>,
-  rawInputs: string[],
-  integerUnits: IntegerUnit[] = [],
+  inputs: Array<string | AbiInputParam>,
+  rawInputs: string[] | ArgumentInputValues,
+  integerUnits: IntegerUnit[] | ArgumentUnitValues = [],
 ) => {
   const iface = new Interface(abi);
-  const args = inputs.map((input, index) =>
-    parseArgumentValue(input.type, rawInputs[index] ?? "", integerUnits[index] ?? "wei"),
-  );
+  const args = parseArgumentInputs(inputs, rawInputs, integerUnits);
   return iface.encodeFunctionData(signature, args);
 };
 
