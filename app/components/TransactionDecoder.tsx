@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Interface, type ParamType } from 'ethers';
 import { decodeDeployData } from 'viem';
 import { normalizeSavedAbiList, type SavedAbi } from './abi-manager-utils';
@@ -95,6 +95,7 @@ const TransactionDecoder = () => {
   const [roughData, setRoughData] = useState('');
   const [decodedRoughData, setDecodedRoughData] = useState<RoughDecodedCallData | null>(null);
   const [roughCandidateSelection, setRoughCandidateSelection] = useState<Record<number, RoughCandidateKind>>({});
+  const [roughAutoDecode, setRoughAutoDecode] = useState(false);
   const [activePanel, setActivePanel] = useState<'tx' | 'event' | 'constructor' | 'rough'>('tx');
 
   // 添加 useEffect 来处理客户端数据加载
@@ -220,11 +221,11 @@ const TransactionDecoder = () => {
     }
   };
 
-  const decodeRoughData = () => {
+  const applyRoughDecode = useCallback((value: string) => {
     setError('');
     setDecodedRoughData(null);
     try {
-      const decoded = roughDecodeCalldata(roughData);
+      const decoded = roughDecodeCalldata(value);
       setDecodedRoughData(decoded);
       setRoughCandidateSelection(
         Object.fromEntries(
@@ -236,6 +237,26 @@ const TransactionDecoder = () => {
       );
     } catch (err) {
       setError('粗解码失败：' + (err as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!roughAutoDecode || activePanel !== 'rough') {
+      return;
+    }
+
+    applyRoughDecode(roughData);
+  }, [activePanel, applyRoughDecode, roughAutoDecode, roughData]);
+
+  const decodeRoughData = () => {
+    setRoughAutoDecode(true);
+    applyRoughDecode(roughData);
+  };
+
+  const handleRoughDataChange = (value: string) => {
+    setRoughData(value);
+    if (roughAutoDecode && activePanel === 'rough') {
+      applyRoughDecode(value);
     }
   };
 
@@ -252,6 +273,7 @@ const TransactionDecoder = () => {
     setRoughData('');
     setDecodedRoughData(null);
     setRoughCandidateSelection({});
+    setRoughAutoDecode(false);
     setError('');
     setSelectedAbiIndex(null);
     localStorage.removeItem(CURRENT_ABI_KEY);
@@ -496,7 +518,8 @@ const TransactionDecoder = () => {
                   <textarea
                     className="h-32 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                     value={roughData}
-                    onChange={(e) => setRoughData(e.target.value)}
+                    onChange={(e) => handleRoughDataChange(e.target.value)}
+                    onInput={(e) => handleRoughDataChange(e.currentTarget.value)}
                     placeholder="请输入交易 data / calldata (0x...)"
                   />
                 </div>
