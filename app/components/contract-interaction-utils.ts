@@ -10,6 +10,47 @@ export type AbiInputParam = {
 
 export type ArgumentInputValues = Record<string, string>;
 export type ArgumentUnitValues = Record<string, IntegerUnit>;
+export type Erc20TokenOption = {
+  chainId: number;
+  symbol: string;
+  address: string;
+  decimals: number;
+};
+
+type CustomErc20TokenInput = {
+  chainId: number | null;
+  address: string;
+  metadata: {
+    symbol: unknown;
+    decimals: unknown;
+  };
+};
+
+export const CONTRACT_INTERACTION_CUSTOM_ERC20_TOKENS_KEY =
+  "contractInteractionCustomErc20Tokens:v1";
+
+const MAX_UINT256 = BigInt(
+  "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+);
+
+export const COMMON_ERC20_TOKENS_BY_CHAIN: Record<number, Erc20TokenOption[]> = {
+  56: [
+    {
+      chainId: 56,
+      symbol: "USDT",
+      address: "0x55d398326f99059fF775485246999027B3197955",
+      decimals: 18,
+    },
+  ],
+  97: [
+    {
+      chainId: 97,
+      symbol: "USDT",
+      address: "0xa83C8A2162225c0DeD2d288FaF453076682a861C",
+      decimals: 18,
+    },
+  ],
+};
 
 const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
@@ -145,6 +186,170 @@ const integerUnitDecimals: Record<IntegerUnit, number> = {
   wei: 0,
   gwei: 9,
   ether: 18,
+};
+
+const normalizeTokenSymbol = (value: unknown) => {
+  if (typeof value !== "string") {
+    throw new Error("Token symbol 读取失败");
+  }
+  return value.trim().toUpperCase();
+};
+
+const parseTokenDecimals = (value: string | number | bigint) => {
+  const decimals =
+    typeof value === "bigint"
+      ? Number(value)
+      : typeof value === "number"
+        ? value
+        : Number(value.trim());
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+    throw new Error("Token decimals 必须是 0 到 255 的整数");
+  }
+  return decimals;
+};
+
+const normalizeErc20TokenOption = (
+  token: unknown,
+  expectedChainId?: number,
+): Erc20TokenOption | null => {
+  if (!token || typeof token !== "object") {
+    return null;
+  }
+  const record = token as Record<string, unknown>;
+  const chainId = Number(record.chainId);
+  if (!Number.isInteger(chainId) || chainId <= 0) {
+    return null;
+  }
+  if (expectedChainId !== undefined && chainId !== expectedChainId) {
+    return null;
+  }
+  if (typeof record.symbol !== "string" || typeof record.address !== "string") {
+    return null;
+  }
+  try {
+    const symbol = normalizeTokenSymbol(record.symbol);
+    const decimals = parseTokenDecimals(record.decimals as string | number);
+    if (!symbol) {
+      return null;
+    }
+    return {
+      chainId,
+      symbol,
+      address: getAddress(normalizeAddressInput(record.address)),
+      decimals,
+    };
+  } catch {
+    return null;
+  }
+};
+
+export const parseCustomErc20TokenStore = (
+  value: string,
+): Record<number, Erc20TokenOption[]> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+
+  return Object.entries(parsed as Record<string, unknown>).reduce<
+    Record<number, Erc20TokenOption[]>
+  >((store, [chainKey, rawTokens]) => {
+    const chainId = Number(chainKey);
+    if (!Number.isInteger(chainId) || chainId <= 0 || !Array.isArray(rawTokens)) {
+      return store;
+    }
+    const tokens = rawTokens
+      .map((token) => normalizeErc20TokenOption(token, chainId))
+      .filter((token): token is Erc20TokenOption => Boolean(token));
+    if (tokens.length > 0) {
+      store[chainId] = mergeErc20TokenOptions([], tokens);
+    }
+    return store;
+  }, {});
+};
+
+export const serializeCustomErc20TokenStore = (
+  store: Record<number, Erc20TokenOption[]>,
+) => JSON.stringify(store);
+
+export const mergeErc20TokenOptions = (
+  presets: Erc20TokenOption[],
+  custom: Erc20TokenOption[],
+) => {
+  const byAddress = new Map<string, Erc20TokenOption>();
+  [...presets, ...custom].forEach((token) => {
+    const normalized = normalizeErc20TokenOption(token);
+    if (!normalized) {
+      return;
+    }
+    byAddress.set(normalized.address.toLowerCase(), normalized);
+  });
+  return Array.from(byAddress.values()).sort((a, b) =>
+    a.symbol.localeCompare(b.symbol),
+  );
+};
+
+export const removeCustomErc20Token = (
+  store: Record<number, Erc20TokenOption[]>,
+  chainId: number,
+  address: string,
+) => {
+  const checksummedAddress = getAddress(normalizeAddressInput(address));
+  const next = { ...store };
+  const remaining = (next[chainId] ?? []).filter(
+    (token) => token.address.toLowerCase() !== checksummedAddress.toLowerCase(),
+  );
+  if (remaining.length === 0) {
+    delete next[chainId];
+  } else {
+    next[chainId] = remaining;
+  }
+  return next;
+};
+
+export const createCustomErc20Token = ({
+  chainId,
+  address,
+  metadata,
+}: CustomErc20TokenInput): Erc20TokenOption => {
+  if (!Number.isInteger(chainId) || !chainId || chainId <= 0) {
+    throw new Error("请先连接钱包并切换到目标链");
+  }
+  const normalizedSymbol = normalizeTokenSymbol(metadata.symbol);
+  if (!normalizedSymbol) {
+    throw new Error("Token symbol 读取失败");
+  }
+  return {
+    chainId,
+    symbol: normalizedSymbol,
+    address: getAddress(normalizeAddressInput(address)),
+    decimals: parseTokenDecimals(metadata.decimals as string | number | bigint),
+  };
+};
+
+export const parseErc20ApprovalAmount = (
+  amountText: string,
+  decimals: number,
+  useMax: boolean,
+) => {
+  const normalizedDecimals = parseTokenDecimals(decimals);
+  if (useMax) {
+    return MAX_UINT256;
+  }
+  const trimmed = amountText.trim();
+  if (!trimmed) {
+    throw new Error("请输入授权数量");
+  }
+  try {
+    return parseUnits(trimmed, normalizedDecimals);
+  } catch {
+    throw new Error("授权数量格式无效");
+  }
 };
 
 const parseIntegerWithUnit = (

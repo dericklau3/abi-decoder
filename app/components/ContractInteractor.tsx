@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BrowserProvider,
   Contract,
@@ -12,11 +12,19 @@ import {
 import { useWallet } from "./wallet/WalletProvider";
 import {
   appendTransactionOverrides,
+  COMMON_ERC20_TOKENS_BY_CHAIN,
+  CONTRACT_INTERACTION_CUSTOM_ERC20_TOKENS_KEY,
+  createCustomErc20Token,
   encodeFunctionCalldata,
   extractContractErrorMessage,
+  mergeErc20TokenOptions,
+  parseCustomErc20TokenStore,
+  parseErc20ApprovalAmount,
+  removeCustomErc20Token,
   type AbiInputParam,
   type ArgumentInputValues,
   type ArgumentUnitValues,
+  type Erc20TokenOption,
   type IntegerUnit,
   hasMissingArgumentInputs,
   isExpandableTupleParam,
@@ -42,6 +50,30 @@ const INTEGER_UNITS: Array<IntegerUnit> = ["wei", "gwei", "ether"];
 
 const ABI_LIST_KEY = "abiList";
 const CURRENT_ABI_KEY = "currentAbi";
+const ERC20_APPROVAL_ABI = [
+  "function approve(address spender,uint256 amount) returns (bool)",
+];
+const ERC20_METADATA_ABI = [
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+];
+const QUICK_APPROVAL_SIGNATURE = "__contract-interaction-erc20-approval__";
+const SUPPORTED_APPROVAL_CHAIN_IDS = new Set([56, 97]);
+
+type ApprovalInputState = {
+  spender: string;
+  amount: string;
+  useMax: boolean;
+};
+
+const createDefaultApprovalInput = (spender: string): ApprovalInputState => ({
+  spender,
+  amount: "",
+  useMax: false,
+});
+
+const shortAddress = (address: string) =>
+  address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "";
 
 const safeJsonParse = <T,>(value: string, fallback: T): T => {
   try {
@@ -124,6 +156,24 @@ const ContractInteractor = () => {
   const [txHashes, setTxHashes] = useState<Record<string, string>>({});
   const [loadingSignatures, setLoadingSignatures] = useState<Record<string, boolean>>({});
   const [copyMessage, setCopyMessage] = useState("");
+  const [customTokenStore, setCustomTokenStore] = useState<
+    Record<number, Erc20TokenOption[]>
+  >({});
+  const [selectedApprovalTokens, setSelectedApprovalTokens] = useState<
+    Record<number, string>
+  >({});
+  const [approvalInputs, setApprovalInputs] = useState<
+    Record<string, ApprovalInputState>
+  >({});
+  const [approvalMessages, setApprovalMessages] = useState<Record<string, string>>({});
+  const [approvalHashes, setApprovalHashes] = useState<Record<string, string>>({});
+  const [approvingSignatures, setApprovingSignatures] = useState<
+    Record<string, boolean>
+  >({});
+  const [newTokenAddress, setNewTokenAddress] = useState("");
+  const [tokenFormMessage, setTokenFormMessage] = useState("");
+  const [isAddingToken, setIsAddingToken] = useState(false);
+  const [isApprovalTokenListOpen, setIsApprovalTokenListOpen] = useState(false);
 
   useEffect(() => {
     setProvider(sharedProvider);
@@ -145,6 +195,11 @@ const ContractInteractor = () => {
       const idx = savedAbiList.findIndex((item) => item.abi === currentAbi);
       setSelectedAbiIndex(idx >= 0 ? idx : null);
     }
+    setCustomTokenStore(
+      parseCustomErc20TokenStore(
+        localStorage.getItem(CONTRACT_INTERACTION_CUSTOM_ERC20_TOKENS_KEY) || "{}",
+      ),
+    );
   }, []);
 
   useEffect(() => {
@@ -198,6 +253,53 @@ const ContractInteractor = () => {
     });
     return { readFunctions: read, writeFunctions: write };
   }, [functions]);
+
+  const erc20TokenOptions = useMemo(() => {
+    if (chainId === null) {
+      return [];
+    }
+    return mergeErc20TokenOptions(
+      COMMON_ERC20_TOKENS_BY_CHAIN[chainId] ?? [],
+      customTokenStore[chainId] ?? [],
+    );
+  }, [chainId, customTokenStore]);
+
+  useEffect(() => {
+    if (chainId === null || erc20TokenOptions.length === 0) {
+      return;
+    }
+    setSelectedApprovalTokens((prev) => {
+      const selected = prev[chainId];
+      if (
+        selected &&
+        erc20TokenOptions.some(
+          (token) => token.address.toLowerCase() === selected.toLowerCase(),
+        )
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [chainId]: erc20TokenOptions[0].address,
+      };
+    });
+  }, [chainId, erc20TokenOptions]);
+
+  const selectedApprovalToken = useMemo(() => {
+    if (chainId === null) {
+      return null;
+    }
+    const selectedAddress = selectedApprovalTokens[chainId];
+    return (
+      erc20TokenOptions.find(
+        (token) =>
+          selectedAddress &&
+          token.address.toLowerCase() === selectedAddress.toLowerCase(),
+      ) ??
+      erc20TokenOptions[0] ??
+      null
+    );
+  }, [chainId, erc20TokenOptions, selectedApprovalTokens]);
 
   const getCalldataPreview = (fn: FunctionInfo) => {
     if (
@@ -313,6 +415,131 @@ const ContractInteractor = () => {
     }));
   };
 
+  const getApprovalInput = (signature: string) =>
+    approvalInputs[signature]
+      ? {
+          ...approvalInputs[signature],
+          spender: approvalInputs[signature].spender || addressInput,
+        }
+      : createDefaultApprovalInput(addressInput);
+
+  const updateApprovalInput = (
+    signature: string,
+    changes: Partial<ApprovalInputState>,
+  ) => {
+    setApprovalInputs((prev) => ({
+      ...prev,
+      [signature]: {
+        ...(prev[signature] ?? createDefaultApprovalInput(addressInput)),
+        ...changes,
+      },
+    }));
+  };
+
+  const setApprovalFeedback = (
+    signature: string,
+    message: string,
+    txHash = "",
+  ) => {
+    setApprovalMessages((prev) => ({ ...prev, [signature]: message }));
+    setApprovalHashes((prev) => ({ ...prev, [signature]: txHash }));
+  };
+
+  const handleSelectApprovalToken = (value: string) => {
+    if (chainId === null) {
+      return;
+    }
+    setSelectedApprovalTokens((prev) => ({
+      ...prev,
+      [chainId]: value,
+    }));
+    setIsApprovalTokenListOpen(false);
+  };
+
+  const handleAddCustomToken = async () => {
+    setTokenFormMessage("");
+    if (!provider) {
+      setTokenFormMessage("请先连接钱包");
+      return;
+    }
+    if (chainId === null) {
+      setTokenFormMessage("请先连接钱包并切换到目标链");
+      return;
+    }
+    try {
+      setIsAddingToken(true);
+      const tokenAddress = getAddress(normalizeAddressInput(newTokenAddress));
+      const tokenCode = await provider.getCode(tokenAddress);
+      if (tokenCode === "0x") {
+        throw new Error("当前链上未找到 Token 合约，请检查 Token 地址与钱包网络");
+      }
+      const tokenContract = new Contract(
+        tokenAddress,
+        ERC20_METADATA_ABI,
+        provider,
+      );
+      const [symbol, decimals] = await Promise.all([
+        tokenContract.symbol(),
+        tokenContract.decimals(),
+      ]);
+      const token = createCustomErc20Token({
+        chainId,
+        address: tokenAddress,
+        metadata: { symbol, decimals },
+      });
+      setCustomTokenStore((prev) => {
+        const next = {
+          ...prev,
+          [token.chainId]: mergeErc20TokenOptions(prev[token.chainId] ?? [], [
+            token,
+          ]),
+        };
+        localStorage.setItem(
+          CONTRACT_INTERACTION_CUSTOM_ERC20_TOKENS_KEY,
+          JSON.stringify(next),
+        );
+        return next;
+      });
+      setSelectedApprovalTokens((prev) => ({
+        ...prev,
+        [token.chainId]: token.address,
+      }));
+      setNewTokenAddress("");
+      setTokenFormMessage(`${token.symbol} 已添加到当前链`);
+    } catch (err) {
+      setTokenFormMessage(extractContractErrorMessage(err));
+    } finally {
+      setIsAddingToken(false);
+    }
+  };
+
+  const handleRemoveCustomToken = (token: Erc20TokenOption) => {
+    if (chainId === null) {
+      return;
+    }
+    setCustomTokenStore((prev) => {
+      const next = removeCustomErc20Token(prev, chainId, token.address);
+      localStorage.setItem(
+        CONTRACT_INTERACTION_CUSTOM_ERC20_TOKENS_KEY,
+        JSON.stringify(next),
+      );
+      return next;
+    });
+    setSelectedApprovalTokens((prev) => {
+      const nextToken = mergeErc20TokenOptions(
+        COMMON_ERC20_TOKENS_BY_CHAIN[chainId] ?? [],
+        removeCustomErc20Token(customTokenStore, chainId, token.address)[chainId] ??
+          [],
+      )[0];
+      return {
+        ...prev,
+        [chainId]: nextToken?.address ?? "",
+      };
+    });
+    setTokenFormMessage(`${token.symbol} 已从当前链删除`);
+    setIsApprovalTokenListOpen(false);
+  };
+
   const handleCopyCalldata = async (data: string) => {
     if (!data) {
       setCopyMessage("暂无可复制 data");
@@ -323,6 +550,62 @@ const ContractInteractor = () => {
       setCopyMessage("调用 data 已复制");
     } catch {
       setCopyMessage("复制失败，请检查浏览器权限");
+    }
+  };
+
+  const handleApproveErc20Token = async (signature: string) => {
+    setApprovalFeedback(signature, "");
+    if (!provider) {
+      setApprovalFeedback(signature, "请先连接钱包");
+      return;
+    }
+    if (!selectedApprovalToken) {
+      setApprovalFeedback(signature, "当前链暂无可授权 Token，请先手动添加");
+      return;
+    }
+
+    const input = getApprovalInput(signature);
+    let spender = "";
+    let amount: bigint;
+    try {
+      spender = getAddress(normalizeAddressInput(input.spender));
+      amount = parseErc20ApprovalAmount(
+        input.amount,
+        selectedApprovalToken.decimals,
+        input.useMax,
+      );
+    } catch (err) {
+      setApprovalFeedback(signature, extractContractErrorMessage(err));
+      return;
+    }
+
+    try {
+      setApprovingSignatures((prev) => ({ ...prev, [signature]: true }));
+      if (typeof injected?.request === "function") {
+        await injected.request({ method: "eth_requestAccounts" });
+      }
+      const tokenCode = await provider.getCode(selectedApprovalToken.address);
+      if (tokenCode === "0x") {
+        throw new Error("当前链上未找到 Token 合约，请检查 Token 地址与钱包网络");
+      }
+      const signer = await provider.getSigner();
+      const tokenContract = new Contract(
+        selectedApprovalToken.address,
+        ERC20_APPROVAL_ABI,
+        signer,
+      );
+      const approve = tokenContract.getFunction("approve");
+      const tx = await approve(spender, amount);
+      setApprovalFeedback(signature, "授权交易已发送，等待链上确认...", tx.hash);
+      await tx.wait();
+      setApprovalFeedback(signature, "授权已确认，可以继续调用目标函数", tx.hash);
+    } catch (err) {
+      setApprovalFeedback(
+        signature,
+        "授权失败：" + extractContractErrorMessage(err),
+      );
+    } finally {
+      setApprovingSignatures((prev) => ({ ...prev, [signature]: false }));
     }
   };
 
@@ -523,6 +806,229 @@ const ContractInteractor = () => {
     );
   };
 
+  const renderErc20ApprovalPanel = () => {
+    const signature = QUICK_APPROVAL_SIGNATURE;
+    const approvalInput = getApprovalInput(signature);
+    const isApproving = Boolean(approvingSignatures[signature]);
+    const approvalMessage = approvalMessages[signature] ?? "";
+    const approvalHash = approvalHashes[signature] ?? "";
+    const tokenSelectValue = selectedApprovalToken?.address ?? "";
+    const tokenCount = erc20TokenOptions.length;
+    const hasPresetApprovalTokens =
+      chainId !== null && SUPPORTED_APPROVAL_CHAIN_IDS.has(chainId);
+    const customTokensForChain = chainId === null ? [] : customTokenStore[chainId] ?? [];
+    const isCustomToken = (token: Erc20TokenOption) =>
+      customTokensForChain.some(
+        (customToken) =>
+          customToken.address.toLowerCase() === token.address.toLowerCase(),
+      );
+
+    return (
+      <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              ERC20 快捷授权
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              BSC / BSC Testnet 预设 USDT，其他链可手动添加 Token。
+            </p>
+          </div>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
+            {chainId === null
+              ? "未连接链"
+              : tokenCount > 0
+                ? `${tokenCount} 个 Token`
+                : hasPresetApprovalTokens
+                  ? "暂无 Token"
+                  : "无预设 Token"}
+          </span>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              选择 Token
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 shadow-sm transition hover:border-slate-300 focus:border-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setIsApprovalTokenListOpen((prev) => !prev)}
+                disabled={chainId === null || tokenCount === 0}
+              >
+                <span className="min-w-0 truncate">
+                  {chainId === null
+                    ? "请先连接钱包"
+                    : selectedApprovalToken
+                      ? `${selectedApprovalToken.symbol} (${shortAddress(
+                          selectedApprovalToken.address,
+                        )}) · ${selectedApprovalToken.decimals}`
+                      : "当前链暂无 Token，请手动添加"}
+                </span>
+                <span className="shrink-0 text-slate-400">⌄</span>
+              </button>
+              {isApprovalTokenListOpen && tokenCount > 0 && (
+                <div className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white py-1 shadow-xl">
+                  {erc20TokenOptions.map((token) => {
+                    const isSelected =
+                      tokenSelectValue.toLowerCase() === token.address.toLowerCase();
+                    const canDelete = isCustomToken(token);
+                    return (
+                      <div
+                        key={token.address}
+                        className={`flex items-center gap-2 px-2 py-1 ${
+                          isSelected ? "bg-blue-50" : "bg-white"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left text-sm transition ${
+                            isSelected
+                              ? "font-semibold text-blue-700"
+                              : "text-slate-700 hover:bg-slate-50"
+                          }`}
+                          onClick={() => handleSelectApprovalToken(token.address)}
+                        >
+                          <span className="block truncate">
+                            {token.symbol} ({shortAddress(token.address)}) ·{" "}
+                            {token.decimals}
+                          </span>
+                        </button>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg leading-none text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleRemoveCustomToken(token);
+                            }}
+                            aria-label={`删除 ${token.symbol}`}
+                            title="删除"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Spender
+            </label>
+            <input
+              type="text"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+              value={approvalInput.spender}
+              onChange={(e) =>
+                updateApprovalInput(signature, { spender: e.target.value })
+              }
+              placeholder="默认当前合约地址"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              授权数量
+            </label>
+            <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400">
+              <input
+                type="text"
+                className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none disabled:bg-slate-100"
+                value={approvalInput.amount}
+                onChange={(e) =>
+                  updateApprovalInput(signature, {
+                    amount: e.target.value,
+                    useMax: false,
+                  })
+                }
+                placeholder="例如 100"
+                disabled={approvalInput.useMax}
+              />
+              <span className="border-l border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500">
+                {selectedApprovalToken?.symbol ?? "Token"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-end gap-3">
+            <label className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300"
+                checked={approvalInput.useMax}
+                onChange={(e) =>
+                  updateApprovalInput(signature, { useMax: e.target.checked })
+                }
+              />
+              最大授权
+            </label>
+            <button
+              type="button"
+              className="min-h-10 rounded-xl border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => handleApproveErc20Token(signature)}
+              disabled={isApproving || chainId === null || !selectedApprovalToken}
+            >
+              {isApproving ? "授权中..." : "授权"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+          <div className="mb-3 text-sm font-semibold text-slate-800">
+            手动添加 Token
+          </div>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              type="text"
+              className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+              value={newTokenAddress}
+              onChange={(e) => setNewTokenAddress(e.target.value)}
+              placeholder="Token 地址"
+            />
+            <button
+              type="button"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              onClick={handleAddCustomToken}
+              disabled={chainId === null || isAddingToken}
+            >
+              {isAddingToken ? "读取中..." : "添加"}
+            </button>
+          </div>
+          {tokenFormMessage && (
+            <div className="mt-2 text-xs text-slate-500">{tokenFormMessage}</div>
+          )}
+        </div>
+
+        {(approvalMessage || approvalHash) && (
+          <div className="mt-4 grid gap-2">
+            {approvalMessage && (
+              <div
+                className={`rounded-xl border px-3 py-2 text-sm ${
+                  approvalMessage.includes("失败")
+                    ? "border-rose-100 bg-rose-50 text-rose-700"
+                    : "border-emerald-100 bg-emerald-50 text-emerald-700"
+                }`}
+              >
+                {approvalMessage}
+              </div>
+            )}
+            {approvalHash && (
+              <div className="break-all rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                授权交易：{approvalHash}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
       <div className="fade-up space-y-3">
@@ -684,6 +1190,8 @@ const ContractInteractor = () => {
           )}
         </section>
       </div>
+
+      {renderErc20ApprovalPanel()}
 
       <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
         <div className="mb-4 flex items-center justify-between">
