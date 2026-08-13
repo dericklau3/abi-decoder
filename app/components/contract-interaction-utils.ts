@@ -16,6 +16,11 @@ export type Erc20TokenOption = {
   address: string;
   decimals: number;
 };
+export type Erc20ApprovalInputState = {
+  spender: string;
+  amount: string;
+  useMax: boolean;
+};
 
 type CustomErc20TokenInput = {
   chainId: number | null;
@@ -350,6 +355,27 @@ export const parseErc20ApprovalAmount = (
   } catch {
     throw new Error("授权数量格式无效");
   }
+};
+
+export const syncErc20ApprovalSpender = (
+  input: Erc20ApprovalInputState,
+  previousContractAddress: string,
+  nextContractAddress: string,
+): Erc20ApprovalInputState => {
+  const spender = input.spender.trim();
+  const previous = previousContractAddress.trim();
+  const shouldFollowContractAddress =
+    !spender ||
+    Boolean(previous && spender.toLowerCase() === previous.toLowerCase());
+
+  if (!shouldFollowContractAddress) {
+    return input;
+  }
+
+  return {
+    ...input,
+    spender: nextContractAddress,
+  };
 };
 
 const parseIntegerWithUnit = (

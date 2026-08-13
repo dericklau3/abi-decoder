@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BrowserProvider,
   Contract,
@@ -21,9 +21,11 @@ import {
   parseCustomErc20TokenStore,
   parseErc20ApprovalAmount,
   removeCustomErc20Token,
+  syncErc20ApprovalSpender,
   type AbiInputParam,
   type ArgumentInputValues,
   type ArgumentUnitValues,
+  type Erc20ApprovalInputState,
   type Erc20TokenOption,
   type IntegerUnit,
   hasMissingArgumentInputs,
@@ -60,13 +62,7 @@ const ERC20_METADATA_ABI = [
 const QUICK_APPROVAL_SIGNATURE = "__contract-interaction-erc20-approval__";
 const SUPPORTED_APPROVAL_CHAIN_IDS = new Set([56, 97]);
 
-type ApprovalInputState = {
-  spender: string;
-  amount: string;
-  useMax: boolean;
-};
-
-const createDefaultApprovalInput = (spender: string): ApprovalInputState => ({
+const createDefaultApprovalInput = (spender: string): Erc20ApprovalInputState => ({
   spender,
   amount: "",
   useMax: false,
@@ -163,7 +159,7 @@ const ContractInteractor = () => {
     Record<number, string>
   >({});
   const [approvalInputs, setApprovalInputs] = useState<
-    Record<string, ApprovalInputState>
+    Record<string, Erc20ApprovalInputState>
   >({});
   const [approvalMessages, setApprovalMessages] = useState<Record<string, string>>({});
   const [approvalHashes, setApprovalHashes] = useState<Record<string, string>>({});
@@ -174,6 +170,7 @@ const ContractInteractor = () => {
   const [tokenFormMessage, setTokenFormMessage] = useState("");
   const [isAddingToken, setIsAddingToken] = useState(false);
   const [isApprovalTokenListOpen, setIsApprovalTokenListOpen] = useState(false);
+  const previousAddressInputRef = useRef("");
 
   useEffect(() => {
     setProvider(sharedProvider);
@@ -211,6 +208,30 @@ const ContractInteractor = () => {
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [copyMessage]);
+
+  useEffect(() => {
+    const previousAddressInput = previousAddressInputRef.current;
+    previousAddressInputRef.current = addressInput;
+
+    setApprovalInputs((prev) => {
+      const currentInput = prev[QUICK_APPROVAL_SIGNATURE];
+      if (!currentInput) {
+        return prev;
+      }
+      const nextInput = syncErc20ApprovalSpender(
+        currentInput,
+        previousAddressInput,
+        addressInput,
+      );
+      if (nextInput === currentInput) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [QUICK_APPROVAL_SIGNATURE]: nextInput,
+      };
+    });
+  }, [addressInput]);
 
   const { abi, error: abiError } = useMemo(
     () => parseAbiJson(abiInput),
@@ -425,7 +446,7 @@ const ContractInteractor = () => {
 
   const updateApprovalInput = (
     signature: string,
-    changes: Partial<ApprovalInputState>,
+    changes: Partial<Erc20ApprovalInputState>,
   ) => {
     setApprovalInputs((prev) => ({
       ...prev,

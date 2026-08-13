@@ -17,6 +17,7 @@ import {
   parseErc20ApprovalAmount,
   removeCustomErc20Token,
   serializeCustomErc20TokenStore,
+  syncErc20ApprovalSpender,
   setArgumentInputValue,
 } from "./contract-interaction-utils";
 
@@ -329,6 +330,42 @@ describe("contract-interaction-utils", () => {
     expect(() => parseErc20ApprovalAmount("1", 300, false)).toThrow(
       "Token decimals 必须是 0 到 255 的整数",
     );
+  });
+
+  test("syncs quick approval spender while it still matches the previous contract address", () => {
+    expect(
+      syncErc20ApprovalSpender(
+        {
+          spender: "0x1111111111111111111111111111111111111111",
+          amount: "100",
+          useMax: false,
+        },
+        "0x1111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222",
+      ),
+    ).toEqual({
+      spender: "0x2222222222222222222222222222222222222222",
+      amount: "100",
+      useMax: false,
+    });
+  });
+
+  test("keeps manually edited quick approval spender when contract address changes", () => {
+    expect(
+      syncErc20ApprovalSpender(
+        {
+          spender: "0x3333333333333333333333333333333333333333",
+          amount: "100",
+          useMax: false,
+        },
+        "0x1111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222",
+      ),
+    ).toEqual({
+      spender: "0x3333333333333333333333333333333333333333",
+      amount: "100",
+      useMax: false,
+    });
   });
 
   test("keeps quick approval presets scoped to bsc usdt", () => {
