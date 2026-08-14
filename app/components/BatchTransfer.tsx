@@ -120,6 +120,14 @@ const BatchTransfer = () => {
   };
 
   useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const receivers = query.get("receivers");
+    if (receivers) {
+      setReceiversText(receivers);
+    }
+  }, []);
+
+  useEffect(() => {
     let isCanceled = false;
 
     const checkApproval = async () => {
