@@ -28,3 +28,30 @@ export const hasDuplicateAbiName = (
     (item, index) => index !== ignoreIndex && item.name.trim() === normalizedName,
   );
 };
+
+export const upsertSavedAbiByName = (
+  savedAbis: Array<SavedAbi>,
+  nextAbi: SavedAbi,
+) => {
+  const normalizedName = nextAbi.name.trim();
+  const normalizedItem = { ...nextAbi, name: normalizedName };
+  const existingIndex = savedAbis.findIndex(
+    (item) => item.name.trim() === normalizedName,
+  );
+
+  if (existingIndex === -1) {
+    return {
+      abiList: [...savedAbis, normalizedItem],
+      index: savedAbis.length,
+      replaced: false,
+    };
+  }
+
+  return {
+    abiList: savedAbis.map((item, index) =>
+      index === existingIndex ? normalizedItem : item,
+    ),
+    index: existingIndex,
+    replaced: true,
+  };
+};

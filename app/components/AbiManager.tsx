@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   hasDuplicateAbiName,
   normalizeSavedAbiList,
+  upsertSavedAbiByName,
   type SavedAbi,
 } from "./abi-manager-utils";
 
@@ -191,15 +192,15 @@ const AbiManager = () => {
         return;
       }
       const fileName = file.name.replace(/\.[^/.]+$/, "");
-      if (hasDuplicateAbiName(savedAbis, fileName)) {
-        setErrorMessage(`ABI 名称「${fileName}」已存在，请换一个名称`);
-        return;
-      }
-      const nextList = [...savedAbis, { name: fileName, abi: abiText }];
-      persistAbiList(nextList, abiText);
-      setAbiName(fileName);
+      const { abiList, index } = upsertSavedAbiByName(savedAbis, {
+        name: fileName,
+        abi: abiText,
+      });
+      persistAbiList(abiList, abiText);
+      setAbiName(abiList[index].name);
       setAbiInput(abiText);
-      setSelectedIndex(nextList.length - 1);
+      setSelectedIndex(index);
+      setErrorMessage("");
     } catch (err) {
       setErrorMessage("文件解析失败：" + (err as Error).message);
     }

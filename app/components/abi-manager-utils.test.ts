@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { hasDuplicateAbiName, normalizeSavedAbiList } from "./abi-manager-utils";
+import {
+  hasDuplicateAbiName,
+  normalizeSavedAbiList,
+  upsertSavedAbiByName,
+} from "./abi-manager-utils";
 
 describe("abi-manager-utils", () => {
   const savedAbis = [
@@ -33,5 +37,38 @@ describe("abi-manager-utils", () => {
 
   test("rejects non-array saved ABI storage values", () => {
     expect(normalizeSavedAbiList({ name: "ERC20", abi: "[]" })).toEqual([]);
+  });
+
+  test("replaces an ABI with the same trimmed name and keeps its position", () => {
+    const result = upsertSavedAbiByName(savedAbis, {
+      name: "  ERC20  ",
+      abi: '[{"type":"function","name":"balanceOf"}]',
+    });
+
+    expect(result).toEqual({
+      abiList: [
+        { name: "ERC20", abi: '[{"type":"function","name":"balanceOf"}]' },
+        { name: "NodeNft", abi: "[{}]" },
+      ],
+      index: 0,
+      replaced: true,
+    });
+  });
+
+  test("appends an ABI when no saved ABI has the same name", () => {
+    const result = upsertSavedAbiByName(savedAbis, {
+      name: "Vault",
+      abi: "[{}]",
+    });
+
+    expect(result).toEqual({
+      abiList: [
+        { name: "ERC20", abi: "[]" },
+        { name: "NodeNft", abi: "[{}]" },
+        { name: "Vault", abi: "[{}]" },
+      ],
+      index: 2,
+      replaced: false,
+    });
   });
 });
