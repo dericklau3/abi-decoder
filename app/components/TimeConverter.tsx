@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { JsonRpcProvider } from "ethers";
 import {
   CHAIN_TIME_CONFIGS,
-  ChainTimeKey,
   EASTERN_TIME_ZONE,
   SHANGHAI_TIME_ZONE,
   BlockTimestampPoint,
+  ChainTimeConfig,
   estimateFutureBlockForTimestamp,
   estimateFutureTimestampForBlock,
   formatCountdownRemaining,
@@ -16,7 +16,10 @@ import {
   isFutureTimestamp,
   parseCountdownTimestampInput,
   parseBlockHeightInput,
+  parseCustomChainTimeConfigs,
+  serializeCustomChainTimeConfigs,
   timeTextToTimestampSeconds,
+  toCustomChainTimeConfig,
 } from "./time-utils";
 
 type BlockTimeResult = {
@@ -26,6 +29,9 @@ type BlockTimeResult = {
     copyable?: boolean;
   }[];
 };
+
+const CUSTOM_CHAIN_TIME_CONFIGS_KEY = "timeConverterCustomChains";
+const CUSTOM_CHAIN_KEY_PREFIX = "custom:";
 
 const ensureRpcUrl = (value: string) => {
   const trimmed = value.trim();
@@ -89,6 +95,9 @@ const parseTargetTimeInput = (value: string) => {
   return Number.parseInt(timeTextToTimestampSeconds(trimmed, SHANGHAI_TIME_ZONE), 10);
 };
 
+const getCustomChainKey = (label: string) =>
+  `${CUSTOM_CHAIN_KEY_PREFIX}${label.trim().toLowerCase()}`;
+
 const TimeConverter = () => {
   const [timestampInput, setTimestampInput] = useState("");
   const [beijingTime, setBeijingTime] = useState("");
@@ -97,8 +106,13 @@ const TimeConverter = () => {
   const [beijingError, setBeijingError] = useState("");
   const [easternError, setEasternError] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
-  const [chainKey, setChainKey] = useState<ChainTimeKey>("bsc");
+  const [chainKey, setChainKey] = useState("bsc");
   const [rpcUrl, setRpcUrl] = useState(CHAIN_TIME_CONFIGS.bsc.defaultRpcUrl);
+  const [customChains, setCustomChains] = useState<ChainTimeConfig[]>([]);
+  const [customChainName, setCustomChainName] = useState("");
+  const [customChainRpcUrl, setCustomChainRpcUrl] = useState("");
+  const [customAverageBlockTime, setCustomAverageBlockTime] = useState("12");
+  const [customChainMessage, setCustomChainMessage] = useState("");
   const [blockHeightInput, setBlockHeightInput] = useState("");
   const [targetTimeInput, setTargetTimeInput] = useState("");
   const [blockTimeResult, setBlockTimeResult] = useState<BlockTimeResult | null>(
@@ -114,7 +128,21 @@ const TimeConverter = () => {
     Math.floor(Date.now() / 1000),
   );
 
-  const selectedChain = CHAIN_TIME_CONFIGS[chainKey];
+  const chainOptions = useMemo(
+    () => [
+      ...Object.entries(CHAIN_TIME_CONFIGS),
+      ...customChains.map(
+        (config) => [getCustomChainKey(config.label), config] as const,
+      ),
+    ],
+    [customChains],
+  );
+  const chainConfigs = useMemo(
+    () => Object.fromEntries(chainOptions) as Record<string, ChainTimeConfig>,
+    [chainOptions],
+  );
+  const selectedChain = chainConfigs[chainKey] ?? CHAIN_TIME_CONFIGS.bsc;
+  const isSelectedCustomChain = chainKey.startsWith(CUSTOM_CHAIN_KEY_PREFIX);
   const countdownTarget = (() => {
     if (!countdownInput.trim()) {
       return null;
@@ -247,6 +275,14 @@ const TimeConverter = () => {
   };
 
   useEffect(() => {
+    setCustomChains(
+      parseCustomChainTimeConfigs(
+        localStorage.getItem(CUSTOM_CHAIN_TIME_CONFIGS_KEY) || "[]",
+      ),
+    );
+  }, []);
+
+  useEffect(() => {
     const timerId = window.setInterval(() => {
       setCountdownNowTimestamp(Math.floor(Date.now() / 1000));
     }, 1000);
@@ -270,14 +306,90 @@ const TimeConverter = () => {
     }
   };
 
-  const handleChainChange = (value: ChainTimeKey) => {
+  const handleChainChange = (value: string) => {
+    const nextChain = chainConfigs[value] ?? CHAIN_TIME_CONFIGS.bsc;
     setChainKey(value);
-    setRpcUrl(CHAIN_TIME_CONFIGS[value].defaultRpcUrl);
+    setRpcUrl(nextChain.defaultRpcUrl);
     setBlockHeightInput("");
     setBlockTimeResult(null);
     setBlockTimeError("");
     setLatestBlockError("");
     setCopyMessage("");
+  };
+
+  const handleSaveCustomChain = () => {
+    setCustomChainMessage("");
+    setBlockTimeError("");
+
+    try {
+      const nextChain = toCustomChainTimeConfig({
+        label: customChainName,
+        defaultRpcUrl: customChainRpcUrl,
+        averageBlockTimeSeconds: customAverageBlockTime,
+      });
+      const normalizedLabel = nextChain.label.toLowerCase();
+      const conflictsWithBuiltIn = Object.values(CHAIN_TIME_CONFIGS).some(
+        (config) => config.label.toLowerCase() === normalizedLabel,
+      );
+      if (conflictsWithBuiltIn) {
+        throw new Error("这个链名已是内置链，请换一个自定义名称");
+      }
+
+      setCustomChains((currentChains) => {
+        const existingIndex = currentChains.findIndex(
+          (config) => config.label.toLowerCase() === normalizedLabel,
+        );
+        const nextChains =
+          existingIndex >= 0
+            ? currentChains.map((config, index) =>
+                index === existingIndex ? nextChain : config,
+              )
+            : [...currentChains, nextChain];
+        localStorage.setItem(
+          CUSTOM_CHAIN_TIME_CONFIGS_KEY,
+          serializeCustomChainTimeConfigs(nextChains),
+        );
+        return nextChains;
+      });
+
+      const nextKey = getCustomChainKey(nextChain.label);
+      setChainKey(nextKey);
+      setRpcUrl(nextChain.defaultRpcUrl);
+      setBlockHeightInput("");
+      setBlockTimeResult(null);
+      setLatestBlockError("");
+      setCustomChainName("");
+      setCustomChainRpcUrl("");
+      setCustomAverageBlockTime("12");
+      setCustomChainMessage(`${nextChain.label} 已保存`);
+    } catch (error) {
+      setCustomChainMessage(
+        error instanceof Error ? error.message : "自定义链保存失败",
+      );
+    }
+  };
+
+  const handleDeleteSelectedCustomChain = () => {
+    if (!isSelectedCustomChain) {
+      return;
+    }
+    const selectedLabel = selectedChain.label.toLowerCase();
+    setCustomChains((currentChains) => {
+      const nextChains = currentChains.filter(
+        (config) => config.label.toLowerCase() !== selectedLabel,
+      );
+      localStorage.setItem(
+        CUSTOM_CHAIN_TIME_CONFIGS_KEY,
+        serializeCustomChainTimeConfigs(nextChains),
+      );
+      return nextChains;
+    });
+    setChainKey("bsc");
+    setRpcUrl(CHAIN_TIME_CONFIGS.bsc.defaultRpcUrl);
+    setBlockHeightInput("");
+    setBlockTimeResult(null);
+    setLatestBlockError("");
+    setCustomChainMessage(`${selectedChain.label} 已删除`);
   };
 
   useEffect(() => {
@@ -684,11 +796,9 @@ const TimeConverter = () => {
               <select
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                 value={chainKey}
-                onChange={(event) =>
-                  handleChainChange(event.target.value as ChainTimeKey)
-                }
+                onChange={(event) => handleChainChange(event.target.value)}
               >
-                {Object.entries(CHAIN_TIME_CONFIGS).map(([key, config]) => (
+                {chainOptions.map(([key, config]) => (
                   <option key={key} value={key}>
                     {config.label}
                   </option>
@@ -733,6 +843,86 @@ const TimeConverter = () => {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_140px_auto_auto] lg:items-end">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  自定义链名
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                  value={customChainName}
+                  onChange={(event) => {
+                    setCustomChainName(event.target.value);
+                    setCustomChainMessage("");
+                  }}
+                  placeholder="例如 opBNB"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  自定义 RPC URL
+                </label>
+                <input
+                  type="url"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                  value={customChainRpcUrl}
+                  onChange={(event) => {
+                    setCustomChainRpcUrl(event.target.value);
+                    setCustomChainMessage("");
+                  }}
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  秒/块
+                </label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                  value={customAverageBlockTime}
+                  onChange={(event) => {
+                    setCustomAverageBlockTime(event.target.value);
+                    setCustomChainMessage("");
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                className="h-10 whitespace-nowrap rounded-xl border border-slate-900 bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
+                onClick={handleSaveCustomChain}
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                className="h-10 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={handleDeleteSelectedCustomChain}
+                disabled={!isSelectedCustomChain}
+              >
+                删除当前
+              </button>
+            </div>
+            {customChainMessage && (
+              <div
+                className={`mt-3 text-xs ${
+                  customChainMessage.includes("失败") ||
+                  customChainMessage.includes("请输入") ||
+                  customChainMessage.includes("必须") ||
+                  customChainMessage.includes("已是")
+                    ? "text-rose-600"
+                    : "text-slate-500"
+                }`}
+              >
+                {customChainMessage}
+              </div>
+            )}
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">

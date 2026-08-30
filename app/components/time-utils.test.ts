@@ -14,6 +14,9 @@ import {
   parseCountdownTimestampInput,
   parseTimeText,
   parseBlockHeightInput,
+  parseCustomChainTimeConfigs,
+  serializeCustomChainTimeConfigs,
+  toCustomChainTimeConfig,
   rpcQuantityToBigInt,
   timeTextToTimestampSeconds,
 } from "./time-utils";
@@ -62,10 +65,69 @@ describe("time-utils", () => {
 
   test("keeps default chain timing configuration", () => {
     expect(CHAIN_TIME_CONFIGS.bsc.averageBlockTimeSeconds).toBe(0.45);
+    expect(CHAIN_TIME_CONFIGS.bsctest.averageBlockTimeSeconds).toBe(0.45);
     expect(CHAIN_TIME_CONFIGS.ethereum.averageBlockTimeSeconds).toBe(12);
     expect(CHAIN_TIME_CONFIGS.bsc.defaultRpcUrl).toBe(
       "https://bsc-dataseed.binance.org",
     );
+    expect(CHAIN_TIME_CONFIGS.bsctest.defaultRpcUrl).toBe(
+      "https://bsc-testnet-rpc.publicnode.com",
+    );
+  });
+
+  test("normalizes custom chain timing configuration", () => {
+    expect(
+      toCustomChainTimeConfig({
+        label: "  opBNB Testnet  ",
+        defaultRpcUrl: " https://opbnb-testnet-rpc.example.com ",
+        averageBlockTimeSeconds: "1.5",
+      }),
+    ).toEqual({
+      label: "opBNB Testnet",
+      defaultRpcUrl: "https://opbnb-testnet-rpc.example.com",
+      averageBlockTimeSeconds: 1.5,
+    });
+  });
+
+  test("rejects invalid custom chain timing configuration", () => {
+    expect(() =>
+      toCustomChainTimeConfig({
+        label: "",
+        defaultRpcUrl: "https://rpc.example.com",
+        averageBlockTimeSeconds: "1",
+      }),
+    ).toThrow("请输入链名");
+
+    expect(() =>
+      toCustomChainTimeConfig({
+        label: "Local",
+        defaultRpcUrl: "ftp://rpc.example.com",
+        averageBlockTimeSeconds: "1",
+      }),
+    ).toThrow("RPC URL 需要是 http(s) 地址");
+
+    expect(() =>
+      toCustomChainTimeConfig({
+        label: "Local",
+        defaultRpcUrl: "https://rpc.example.com",
+        averageBlockTimeSeconds: "0",
+      }),
+    ).toThrow("平均出块时间必须大于 0");
+  });
+
+  test("round-trips custom chain timing configurations", () => {
+    const configs = [
+      toCustomChainTimeConfig({
+        label: "opBNB Testnet",
+        defaultRpcUrl: "https://opbnb-testnet-rpc.example.com",
+        averageBlockTimeSeconds: "1",
+      }),
+    ];
+
+    expect(parseCustomChainTimeConfigs(serializeCustomChainTimeConfigs(configs))).toEqual(
+      configs,
+    );
+    expect(parseCustomChainTimeConfigs("not json")).toEqual([]);
   });
 
   test("parses decimal block height input", () => {

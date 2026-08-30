@@ -574,6 +574,19 @@ const ContractInteractor = () => {
     }
   };
 
+  const handleCopyTxHash = async (txHash: string) => {
+    if (!txHash) {
+      setCopyMessage("暂无可复制交易哈希");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(txHash);
+      setCopyMessage("交易哈希已复制");
+    } catch {
+      setCopyMessage("复制失败，请检查浏览器权限");
+    }
+  };
+
   const handleApproveErc20Token = async (signature: string) => {
     setApprovalFeedback(signature, "");
     if (!provider) {
@@ -1306,11 +1319,36 @@ const ContractInteractor = () => {
                             {(txHash || resultOutput) && (
                               <div className="mt-4 grid gap-4">
                                 {txHash && (
-                                  <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                                      交易哈希
-                                    </label>
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                  <div className="min-w-0">
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                      <label className="block text-sm font-medium text-slate-700">
+                                        交易哈希
+                                      </label>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                                        onClick={() => handleCopyTxHash(txHash)}
+                                        aria-label="复制交易哈希"
+                                        title="复制交易哈希"
+                                      >
+                                        <svg
+                                          aria-hidden="true"
+                                          className="h-4 w-4"
+                                          fill="none"
+                                          viewBox="0 0 24 24"
+                                          stroke="currentColor"
+                                          strokeWidth="1.8"
+                                        >
+                                          <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                                          />
+                                          <rect x="8" y="2" width="8" height="4" rx="1" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                    <div className="max-w-full break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-600">
                                       {txHash}
                                     </div>
                                   </div>
@@ -1478,11 +1516,36 @@ const ContractInteractor = () => {
                             {(txHash || resultOutput) && (
                               <div className="mt-4 grid gap-4">
                                 {txHash && (
-                                  <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                                      交易哈希
-                                    </label>
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                  <div className="min-w-0">
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                      <label className="block text-sm font-medium text-slate-700">
+                                        交易哈希
+                                      </label>
+                                      <button
+                                        type="button"
+                                        className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
+                                        onClick={() => handleCopyTxHash(txHash)}
+                                        aria-label="复制交易哈希"
+                                        title="复制交易哈希"
+                                      >
+                                        <svg
+                                          aria-hidden="true"
+                                          className="h-4 w-4"
+                                          fill="none"
+                                          viewBox="0 0 24 24"
+                                          stroke="currentColor"
+                                          strokeWidth="1.8"
+                                        >
+                                          <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                                          />
+                                          <rect x="8" y="2" width="8" height="4" rx="1" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                    <div className="max-w-full break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-600">
                                       {txHash}
                                     </div>
                                   </div>

@@ -1,12 +1,18 @@
 export const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 export const EASTERN_TIME_ZONE = "America/New_York";
 
-export type ChainTimeKey = "bsc" | "ethereum";
+export type ChainTimeKey = "bsc" | "bsctest" | "ethereum";
 
 export type ChainTimeConfig = {
   label: string;
   defaultRpcUrl: string;
   averageBlockTimeSeconds: number;
+};
+
+export type CustomChainTimeConfigInput = {
+  label: string;
+  defaultRpcUrl: string;
+  averageBlockTimeSeconds: string | number;
 };
 
 export type BlockTimestampPoint = {
@@ -29,12 +35,103 @@ export const CHAIN_TIME_CONFIGS: Record<ChainTimeKey, ChainTimeConfig> = {
     defaultRpcUrl: "https://bsc-dataseed.binance.org",
     averageBlockTimeSeconds: 0.45,
   },
+  bsctest: {
+    label: "BSC Testnet",
+    defaultRpcUrl: "https://bsc-testnet-rpc.publicnode.com",
+    averageBlockTimeSeconds: 0.45,
+  },
   ethereum: {
     label: "Ethereum",
     defaultRpcUrl: "https://ethereum-rpc.publicnode.com",
     averageBlockTimeSeconds: 12,
   },
 };
+
+const ensureCustomRpcUrl = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("请输入 RPC URL");
+  }
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("RPC URL 需要是 http(s) 地址");
+    }
+    return trimmed;
+  } catch (error) {
+    if (error instanceof Error && error.message === "RPC URL 需要是 http(s) 地址") {
+      throw error;
+    }
+    throw new Error("请输入有效的 RPC URL");
+  }
+};
+
+export const toCustomChainTimeConfig = ({
+  label,
+  defaultRpcUrl,
+  averageBlockTimeSeconds,
+}: CustomChainTimeConfigInput): ChainTimeConfig => {
+  const trimmedLabel = label.trim();
+  if (!trimmedLabel) {
+    throw new Error("请输入链名");
+  }
+
+  const parsedAverageBlockTime =
+    typeof averageBlockTimeSeconds === "number"
+      ? averageBlockTimeSeconds
+      : Number.parseFloat(averageBlockTimeSeconds.trim());
+  if (
+    !Number.isFinite(parsedAverageBlockTime) ||
+    parsedAverageBlockTime <= 0
+  ) {
+    throw new Error("平均出块时间必须大于 0");
+  }
+
+  return {
+    label: trimmedLabel,
+    defaultRpcUrl: ensureCustomRpcUrl(defaultRpcUrl),
+    averageBlockTimeSeconds: parsedAverageBlockTime,
+  };
+};
+
+export const parseCustomChainTimeConfigs = (value: string) => {
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((item) =>
+        toCustomChainTimeConfig({
+          label: String(item?.label ?? ""),
+          defaultRpcUrl: String(item?.defaultRpcUrl ?? ""),
+          averageBlockTimeSeconds: item?.averageBlockTimeSeconds ?? "",
+        }),
+      )
+      .filter((item, index, configs) => {
+        const normalizedLabel = item.label.toLowerCase();
+        return (
+          configs.findIndex(
+            (config) => config.label.toLowerCase() === normalizedLabel,
+          ) === index
+        );
+      });
+  } catch {
+    return [];
+  }
+};
+
+export const serializeCustomChainTimeConfigs = (
+  configs: ChainTimeConfig[],
+) =>
+  JSON.stringify(
+    configs.map((config) => ({
+      label: config.label,
+      defaultRpcUrl: config.defaultRpcUrl,
+      averageBlockTimeSeconds: config.averageBlockTimeSeconds,
+    })),
+  );
 
 const TIME_TEXT_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
