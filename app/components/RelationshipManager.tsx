@@ -17,6 +17,7 @@ import {
   buildWalletLabel,
   exportRelationshipTxt,
   getAddressFunctionOptions,
+  needsErc20Approval,
   splitGraphAndAvailableWallets,
   shortRelationshipAddress,
   validateRelationships,
@@ -71,6 +72,7 @@ type RelationshipApprovalConfig = {
 
 const ABI_LIST_KEY = "abiList";
 const ERC20_APPROVAL_ABI = [
+  "function allowance(address owner,address spender) view returns (uint256)",
   "function approve(address spender,uint256 amount) returns (bool)",
 ];
 const ERC20_METADATA_ABI = [
@@ -583,6 +585,23 @@ const RelationshipManager = () => {
     setMessage("");
   };
 
+  useEffect(() => {
+    if (!message && !errorMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (message) {
+        setMessage((current) => (current === message ? "" : current));
+      }
+      if (errorMessage) {
+        setErrorMessage((current) => (current === errorMessage ? "" : current));
+      }
+    }, 2500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [message, errorMessage]);
+
   const persistVaultState = (
     nextVault: WalletVault,
     secrets: Record<string, string>,
@@ -1042,6 +1061,16 @@ const RelationshipManager = () => {
               ERC20_APPROVAL_ABI,
               signer,
             );
+            const allowance = tokenContract.getFunction("allowance");
+            const currentAllowance = await allowance(wallet.address, checkedContractAddress);
+            if (!needsErc20Approval(BigInt(currentAllowance), approval.amount)) {
+              updateTaskTransaction(task.id, runningTransactionId, {
+                status: "skipped",
+                txHash: null,
+                error: "授权额度足够，已跳过",
+              });
+              continue;
+            }
             const approve = tokenContract.getFunction("approve");
             const approveTx = await approve(checkedContractAddress, approval.amount);
             updateTaskTransaction(task.id, runningTransactionId, {
@@ -1286,6 +1315,18 @@ const RelationshipManager = () => {
           创建测试钱包、维护绑定树、批量充值地址，并按层级使用每个钱包自己的私钥发送绑定交易。
         </p>
       </div>
+
+      {(message || errorMessage) && (
+        <div
+          className={`toast-slide-in fixed left-4 right-4 top-4 z-50 rounded-2xl border px-4 py-3 text-sm shadow-lg sm:left-auto sm:w-96 ${
+            errorMessage
+              ? "border-rose-100 bg-rose-50 text-rose-700"
+              : "border-emerald-100 bg-emerald-50 text-emerald-800"
+          }`}
+        >
+          {errorMessage || message}
+        </div>
+      )}
 
       <section className="fade-up-delay rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.4)]">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
@@ -1740,7 +1781,7 @@ const RelationshipManager = () => {
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">授权配置</h3>
                   <p className="mt-1 text-xs text-slate-500">
-                    每个任务会先把下方 ERC20 授权给合约地址，全部确认后再执行绑定。
+                    每个任务会先检查 ERC20 授权额度，不足时才授权给合约地址。
                   </p>
                 </div>
                 <button type="button" className={buttonClass} onClick={addApprovalConfig}>
@@ -1923,18 +1964,6 @@ const RelationshipManager = () => {
         </div>
       </section>
 
-      {(message || errorMessage) && (
-        <div
-          className={`rounded-2xl border px-4 py-3 text-sm ${
-            errorMessage
-              ? "border-rose-100 bg-rose-50 text-rose-700"
-              : "border-emerald-100 bg-emerald-50 text-emerald-800"
-          }`}
-        >
-          {errorMessage || message}
-        </div>
-      )}
-
       {detailWallet && detailVaultWallet && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4 backdrop-blur-sm">
           <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
@@ -1963,8 +1992,12 @@ const RelationshipManager = () => {
                   type="button"
                   className={`${buttonClass} mt-3`}
                   onClick={async () => {
-                    await navigator.clipboard.writeText(detailWallet.address);
-                    setToast("地址已复制");
+                    try {
+                      await navigator.clipboard.writeText(detailWallet.address);
+                      setToast("地址已复制");
+                    } catch {
+                      setError("复制失败，请检查浏览器权限");
+                    }
                   }}
                 >
                   复制地址
@@ -1992,8 +2025,12 @@ const RelationshipManager = () => {
                         setError("PrivateKey 不存在");
                         return;
                       }
-                      await navigator.clipboard.writeText(privateKey);
-                      setToast("私钥已复制");
+                      try {
+                        await navigator.clipboard.writeText(privateKey);
+                        setToast("私钥已复制");
+                      } catch {
+                        setError("复制失败，请检查浏览器权限");
+                      }
                     }}
                   >
                     复制私钥

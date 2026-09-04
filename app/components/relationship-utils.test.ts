@@ -8,6 +8,7 @@ import {
   exportRelationshipCsv,
   exportRelationshipTxt,
   getAddressFunctionOptions,
+  needsErc20Approval,
   splitGraphAndAvailableWallets,
   validateRelationships,
   type RelationshipRelation,
@@ -202,6 +203,12 @@ describe("relationship-utils", () => {
         "2,0x0000000000000000000000000000000000000002,0x0000000000000000000000000000000000000001",
       ].join("\n"),
     );
+  });
+
+  test("requires ERC20 approval only when allowance is below the required amount", () => {
+    expect(needsErc20Approval(99n, 100n)).toBe(true);
+    expect(needsErc20Approval(100n, 100n)).toBe(false);
+    expect(needsErc20Approval(101n, 100n)).toBe(false);
   });
 
   test("finds writable ABI functions with one or more address inputs", () => {

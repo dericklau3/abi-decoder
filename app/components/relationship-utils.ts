@@ -109,6 +109,9 @@ export type SplitRelationshipWalletsResult = {
   availableWallets: RelationshipWallet[];
 };
 
+export const needsErc20Approval = (allowance: bigint, requiredAmount: bigint) =>
+  allowance < requiredAmount;
+
 const csvCell = (value: string) => {
   if (!/[",\n]/.test(value)) {
     return value;
