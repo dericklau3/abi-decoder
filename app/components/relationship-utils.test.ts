@@ -151,14 +151,32 @@ describe("relationship-utils", () => {
     ]);
   });
 
-  test("uses the first wallet as the initial graph root when there are no relations", () => {
+  test("keeps every wallet available when there are no relations or selected roots", () => {
     const result = splitGraphAndAvailableWallets(wallets, []);
 
-    expect(result.graphWallets.map((wallet) => wallet.id)).toEqual(["wallet-1"]);
+    expect(result.graphWallets).toEqual([]);
     expect(result.availableWallets.map((wallet) => wallet.id)).toEqual([
+      "wallet-1",
       "wallet-2",
       "wallet-3",
       "wallet-4",
+    ]);
+  });
+
+  test("uses selected root wallets as level 0 graph wallets", () => {
+    const result = splitGraphAndAvailableWallets(
+      wallets,
+      [],
+      new Set(["wallet-2", "wallet-4"]),
+    );
+
+    expect(result.graphWallets.map((wallet) => wallet.id)).toEqual([
+      "wallet-2",
+      "wallet-4",
+    ]);
+    expect(result.availableWallets.map((wallet) => wallet.id)).toEqual([
+      "wallet-1",
+      "wallet-3",
     ]);
   });
 

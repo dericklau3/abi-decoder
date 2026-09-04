@@ -361,16 +361,14 @@ export const buildRelationshipGraphLayout = (
 export const splitGraphAndAvailableWallets = (
   wallets: RelationshipWallet[],
   relations: RelationshipRelation[],
+  rootWalletIds: Set<string> = new Set(),
 ): SplitRelationshipWalletsResult => {
   const graphWalletIds = new Set<string>();
+  rootWalletIds.forEach((walletId) => graphWalletIds.add(walletId));
   relations.forEach((relation) => {
     graphWalletIds.add(relation.walletId);
     graphWalletIds.add(relation.inviterId);
   });
-
-  if (graphWalletIds.size === 0 && wallets[0]) {
-    graphWalletIds.add(wallets[0].id);
-  }
 
   return {
     graphWallets: wallets.filter((wallet) => graphWalletIds.has(wallet.id)),

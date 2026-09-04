@@ -223,6 +223,7 @@ type RelationshipGraphViewProps = {
   onDragEnd: () => void;
   onDropOnInviter: (walletId: string, inviterId: string) => void;
   onRemoveRelation: (walletId: string) => void;
+  onRemoveRoot: (walletId: string) => void;
 };
 
 const RelationshipGraphView = ({
@@ -232,8 +233,16 @@ const RelationshipGraphView = ({
   onDragEnd,
   onDropOnInviter,
   onRemoveRelation,
+  onRemoveRoot,
 }: RelationshipGraphViewProps) => {
   const nodeById = new Map(layout.nodes.map((node) => [node.wallet.id, node]));
+  const childCountByWalletId = new Map<string, number>();
+  layout.edges.forEach((edge) => {
+    childCountByWalletId.set(
+      edge.fromWalletId,
+      (childCountByWalletId.get(edge.fromWalletId) || 0) + 1,
+    );
+  });
 
   return (
     <div
@@ -330,7 +339,21 @@ const RelationshipGraphView = ({
                   {shortRelationshipAddress(node.wallet.address)}
                 </div>
               </div>
-              {!isRoot && (
+              {isRoot ? (
+                <button
+                  type="button"
+                  className="text-[11px] font-semibold text-rose-500 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                  onClick={() => onRemoveRoot(node.wallet.id)}
+                  disabled={(childCountByWalletId.get(node.wallet.id) || 0) > 0}
+                  title={
+                    (childCountByWalletId.get(node.wallet.id) || 0) > 0
+                      ? "有下级时不能移到待加入钱包"
+                      : "移到待加入钱包"
+                  }
+                >
+                  移出
+                </button>
+              ) : (
                 <button
                   type="button"
                   className="text-[11px] font-semibold text-rose-500 hover:text-rose-700"
@@ -362,6 +385,7 @@ const RelationshipManager = () => {
   const [walletSecrets, setWalletSecrets] = useState<Record<string, string>>({});
   const [selectedWalletIds, setSelectedWalletIds] = useState<Set<string>>(new Set());
   const [relations, setRelations] = useState<RelationshipRelation[]>([]);
+  const [rootWalletIds, setRootWalletIds] = useState<Set<string>>(new Set());
   const [balances, setBalances] = useState<Record<string, WalletBalance>>({});
   const [detailWalletId, setDetailWalletId] = useState<string | null>(null);
   const [isPrivateKeyVisible, setIsPrivateKeyVisible] = useState(false);
@@ -523,8 +547,8 @@ const RelationshipManager = () => {
     setFixedArgumentUnits({});
   }, [selectedFunctionOption]);
   const relationshipWalletGroups = useMemo(
-    () => splitGraphAndAvailableWallets(wallets, relations),
-    [wallets, relations],
+    () => splitGraphAndAvailableWallets(wallets, relations, rootWalletIds),
+    [wallets, relations, rootWalletIds],
   );
   const graphRelations = useMemo(() => {
     const graphWalletIds = new Set(
@@ -611,6 +635,7 @@ const RelationshipManager = () => {
     setWalletSecrets(secrets);
     setSelectedWalletIds(new Set(nextVault.wallets.map((wallet) => wallet.id)));
     setRelations([]);
+    setRootWalletIds(new Set());
     setTasks([]);
     setBalances({});
     setRootInviterInputs({});
@@ -763,6 +788,32 @@ const RelationshipManager = () => {
       return;
     }
     setRelations(nextRelations);
+    setRootWalletIds((previous) => {
+      const next = new Set(previous);
+      next.delete(walletId);
+      return next;
+    });
+  };
+
+  const addRootWallet = (walletId: string) => {
+    setErrorMessage("");
+    setMessage("");
+    setRootWalletIds((previous) => new Set(previous).add(walletId));
+  };
+
+  const removeRootWallet = (walletId: string) => {
+    const hasChildren = relations.some((relation) => relation.inviterId === walletId);
+    if (hasChildren) {
+      setError("有下级的钱包不能直接移到待加入钱包");
+      return;
+    }
+    setErrorMessage("");
+    setMessage("");
+    setRootWalletIds((previous) => {
+      const next = new Set(previous);
+      next.delete(walletId);
+      return next;
+    });
   };
 
   const checkRelations = () => {
@@ -1543,7 +1594,7 @@ const RelationshipManager = () => {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">关系编辑</h2>
               <p className="mt-1 text-sm text-slate-500">
-                拖动钱包到目标上级节点上，自动生成父子关系。
+                先从待加入钱包中设为 Root，再拖动钱包到目标上级节点上生成父子关系。
               </p>
             </div>
             <button type="button" className={buttonClass} onClick={checkRelations}>
@@ -1567,7 +1618,13 @@ const RelationshipManager = () => {
                     onDragEnd={() => setDraggingWalletId(null)}
                     onDropOnInviter={handleSetRelation}
                     onRemoveRelation={(walletId) => handleSetRelation(walletId, "")}
+                    onRemoveRoot={removeRootWallet}
                   />
+                )}
+                {wallets.length > 0 && relationshipWalletGroups.graphWallets.length === 0 && (
+                  <div className="flex min-h-48 w-full min-w-[480px] items-center justify-center text-sm text-slate-400">
+                    从右侧选择钱包设为 Root
+                  </div>
                 )}
                 {wallets.length === 0 && (
                   <div className="flex min-h-48 w-full min-w-[480px] items-center justify-center text-sm text-slate-400">
@@ -1600,6 +1657,13 @@ const RelationshipManager = () => {
                     <div className="mt-1 font-mono text-[11px] text-slate-500" title={wallet.address}>
                       {shortRelationshipAddress(wallet.address)}
                     </div>
+                    <button
+                      type="button"
+                      className="mt-2 text-[11px] font-semibold text-slate-700 hover:text-slate-950"
+                      onClick={() => addRootWallet(wallet.id)}
+                    >
+                      设为 Root
+                    </button>
                   </div>
                 ))}
                 {relationshipWalletGroups.availableWallets.length === 0 && (
