@@ -149,9 +149,6 @@ const ContractInteractor = () => {
   const [chainId, setChainId] = useState<number | null>(null);
   const [errorMessages, setErrorMessages] = useState<Record<string, string>>({});
   const [resultOutputs, setResultOutputs] = useState<Record<string, string>>({});
-  const [readCompletions, setReadCompletions] = useState<
-    Record<string, { count: number; time: string }>
-  >({});
   const [txHashes, setTxHashes] = useState<Record<string, string>>({});
   const [loadingSignatures, setLoadingSignatures] = useState<Record<string, boolean>>({});
   const [copyMessage, setCopyMessage] = useState("");
@@ -664,6 +661,9 @@ const ContractInteractor = () => {
   };
 
   const handleCall = async (fnInfo: FunctionInfo) => {
+    if (loadingSignatures[fnInfo.signature]) {
+      return;
+    }
     resetOutputs(fnInfo.signature);
     if (!provider) {
       setFunctionError(fnInfo.signature, "请先连接钱包");
@@ -681,6 +681,8 @@ const ContractInteractor = () => {
       setFunctionError(fnInfo.signature, "请选择 ABI");
       return;
     }
+    // Keep loading feedback visible even when the wallet responds immediately.
+    const loadingFeedback = new Promise<void>((resolve) => window.setTimeout(resolve, 300));
     try {
       setFunctionLoading(fnInfo.signature, true);
       const checksummed = getAddress(normalizedAddress);
@@ -694,19 +696,13 @@ const ContractInteractor = () => {
       const args = parseArgumentInputs(fnInfo.inputs, currentInputs, currentUnits);
       const fn = contract.getFunction(fnInfo.signature);
       const result = await fn(...args);
-      const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-      setReadCompletions((prev) => ({
-        ...prev,
-        [fnInfo.signature]: {
-          count: (prev[fnInfo.signature]?.count ?? 0) + 1,
-          time,
-        },
-      }));
+      await loadingFeedback;
       setResultOutputs((prev) => ({
         ...prev,
         [fnInfo.signature]: formatResult(result),
       }));
     } catch (err) {
+      await loadingFeedback;
       setFunctionError(fnInfo.signature, "调用失败：" + extractContractErrorMessage(err));
     } finally {
       setFunctionLoading(fnInfo.signature, false);
@@ -1271,7 +1267,6 @@ const ContractInteractor = () => {
                     const isFunctionLoading = Boolean(loadingSignatures[item.signature]);
                     const errorMessage = errorMessages[item.signature] ?? "";
                     const resultOutput = resultOutputs[item.signature] ?? "";
-                    const readCompletion = readCompletions[item.signature];
                     const txHash = txHashes[item.signature] ?? "";
                     return (
                       <div key={item.signature} className="space-y-3">
@@ -1320,11 +1315,6 @@ const ContractInteractor = () => {
                               >
                                 {isFunctionLoading ? "读取中..." : "读取合约"}
                               </button>
-                              {!isFunctionLoading && !errorMessage && resultOutput && readCompletion && (
-                                <span role="status" className="self-center text-xs text-slate-500">
-                                  本页已成功读取 {readCompletion.count} 次 · {readCompletion.time}
-                                </span>
-                              )}
                             </div>
 
                             {errorMessage && (
