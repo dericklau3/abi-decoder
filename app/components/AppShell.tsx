@@ -24,6 +24,7 @@ const navItems: NavItem[] = [
   { name: "批量查余额", href: "/batch-balance" },
   { name: "批量调用", href: "/batch-call" },
   { name: "Proxy 查询", href: "/proxy-lookup" },
+  { name: "RPC 检查", href: "/rpc-check" },
   { name: "ABI 管理", href: "/abi-manager" },
   { name: "Selector 映射", href: "/abi-selectors" },
 ];
