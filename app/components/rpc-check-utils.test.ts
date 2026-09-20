@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  DEFAULT_MAX_PROBE_INTERVAL,
   buildLogProbeFilter,
   findMaxSupportedInterval,
   normalizeRpcUrl,
+  probeLogRange,
 } from "./rpc-check-utils";
 
 describe("rpc-check-utils", () => {
@@ -28,69 +28,75 @@ describe("rpc-check-utils", () => {
     });
   });
 
-  test("finds the largest supported interval with exponential probing and binary search", async () => {
-    const probedIntervals: number[] = [];
-    const result = await findMaxSupportedInterval(
-      10_000,
-      async (fromBlock, toBlock) => {
-        const interval = toBlock - fromBlock + 1;
-        probedIntervals.push(interval);
-        return interval <= 5;
-      },
-      16,
-    );
-
-    expect(result).toEqual({
-      supported: true,
-      maxInterval: 5,
-      attempts: probedIntervals.length,
-      reachedProbeLimit: false,
+  test("checks 100000 blocks in a single request", async () => {
+    const ranges: number[][] = [];
+    const result = await findMaxSupportedInterval(200000, async (from, to) => {
+      ranges.push([from, to]);
+      return true;
     });
-    expect(probedIntervals).toEqual([1, 2, 4, 8, 6, 5]);
+    expect(ranges).toEqual([[100001, 200000]]);
+    expect(result).toMatchObject({ supported: true, maxInterval: 100000, attempts: 1, reachedProbeLimit: true });
   });
 
-  test("reports an unsupported RPC when even a one-block log query fails", async () => {
-    const result = await findMaxSupportedInterval(
-      10_000,
-      async () => false,
-      DEFAULT_MAX_PROBE_INTERVAL,
-    );
-
-    expect(result).toEqual({
-      supported: false,
-      maxInterval: 0,
-      attempts: 1,
-      reachedProbeLimit: false,
+  test("clamps the single request to chain history", async () => {
+    const ranges: number[][] = [];
+    const result = await findMaxSupportedInterval(2, async (from, to) => {
+      ranges.push([from, to]);
+      return true;
     });
+    expect(ranges).toEqual([[0, 2]]);
+    expect(result).toMatchObject({ maxInterval: 3, attempts: 1, reachedProbeLimit: false });
   });
 
-  test("marks a result as capped when every interval up to the probe limit works", async () => {
-    const result = await findMaxSupportedInterval(
-      10_000,
-      async () => true,
-      4,
-    );
-
-    expect(result).toEqual({
-      supported: true,
-      maxInterval: 4,
-      attempts: 3,
-      reachedProbeLimit: true,
-    });
+  test.each([
+    ["block range exceeds maximum allowed range of 5000 blocks", 5000],
+    ["exceed maximum block range: 50,000", 50000],
+    ["eth_getLogs is limited to a 10,000 blocks range", 10000],
+    ["block range too large", undefined],
+  ])("reads the explicit range limit from %s without further requests", async (message, limit) => {
+    const result = await findMaxSupportedInterval(200000, (from, to) => probeLogRange(async () => {
+      throw { error: { code: -32602, message } };
+    }, from, to));
+    expect(result.attempts).toBe(1);
+    expect(result.supported).toBe(false);
+    expect(result.maxInterval).toBe(0);
+    expect(result.reportedMaxInterval).toBe(limit);
+    expect(result.stopReason).toContain(message);
   });
 
-  test("does not confuse reaching the chain start with reaching the probe limit", async () => {
-    const result = await findMaxSupportedInterval(
-      2,
-      async () => true,
-      DEFAULT_MAX_PROBE_INTERVAL,
-    );
-
-    expect(result).toEqual({
-      supported: true,
-      maxInterval: 3,
-      attempts: 3,
-      reachedProbeLimit: false,
-    });
-  });
 });
+
+// RPC failures must not become a fabricated block-range limit.
+describe("log probe failures", () => {
+  test.each([
+    { code: -32005, message: "rate limit exceeded" },
+    { code: -32005, message: "limit exceeded" },
+    { code: -32005, message: "query returned more than 10000 results" },
+    { code: -32601, message: "method not found" },
+    { code: -32602, message: "invalid params: address required" },
+    { code: "TIMEOUT", message: "request timeout" },
+    { code: "SERVER_ERROR", message: "HTTP 429 Too Many Requests" },
+  ])("keeps $message separate from range rejection", async (failure) => {
+    await expect(probeLogRange(async () => { throw failure; }, 1, 2)).rejects.toThrow();
+  });
+
+  test("rejects malformed successful log responses", async () => {
+    await expect(probeLogRange(async () => null, 1, 2)).rejects.toThrow();
+  });
+
+  test("does not claim unsupported when the first request times out", async () => {
+    const result = await findMaxSupportedInterval(100, async () => { throw new Error("超时"); });
+    expect(result.maxInterval).toBe(0);
+    expect(result.stopReason).toContain("超时");
+  });
+
+});
+
+ test("BNB generic limit exceeded does not establish a block-range limit", async () => {
+   const result = await findMaxSupportedInterval(123008000, (from, to) => probeLogRange(async () => {
+     throw { error: { code: -32005, message: "limit exceeded" } };
+   }, from, to));
+   expect(result.stopReason).toContain("无法确定");
+   expect(result.attempts).toBe(1);
+   expect(result.maxInterval).toBe(0);
+ });
