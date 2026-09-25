@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Contract, formatEther, getAddress, Interface, parseUnits, Wallet } from "ethers";
 
 import {
@@ -10,13 +10,19 @@ import {
   type IntegerUnit,
 } from "./contract-interaction-utils";
 import { useWallet } from "./wallet/WalletProvider";
+import { splitRelationshipBalanceBatches } from "./relationship-balance-utils";
 import {
   buildExecutionPlan,
   buildRelationshipCallArgs,
   buildRelationshipGraphLayout,
   buildWalletLabel,
+  adjustRelationshipZoom,
+  DEFAULT_RELATIONSHIP_ZOOM,
   exportRelationshipTxt,
   getAddressFunctionOptions,
+  getRelationshipAutoScrollPosition,
+  MAX_RELATIONSHIP_ZOOM,
+  MIN_RELATIONSHIP_ZOOM,
   needsErc20Approval,
   splitGraphAndAvailableWallets,
   shortRelationshipAddress,
@@ -79,6 +85,11 @@ const ERC20_METADATA_ABI = [
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
 ];
+const MULTICALL3_ADDRESS = "0xca11bde05977b3631167028862be2a173976ca11";
+const MULTICALL3_BALANCE_ABI = [
+  "function getEthBalance(address addr) view returns (uint256)",
+];
+const BALANCE_QUERY_BATCH_SIZE = 100;
 const integerUnitDecimals: Record<IntegerUnit, number> = {
   wei: 0,
   gwei: 9,
@@ -317,6 +328,7 @@ const RelationshipGraphView = ({
                   ? "border-slate-900"
                   : "border-slate-200"
             }`}
+            data-relationship-wallet-id={node.wallet.id}
             style={{
               left: node.x,
               top: node.y,
@@ -377,8 +389,14 @@ const RelationshipGraphView = ({
 };
 
 const RelationshipManager = () => {
-  const { provider, networkName, nativeCurrencySymbol, chainId, openWalletModal } =
-    useWallet();
+  const {
+    provider,
+    multicallProvider,
+    networkName,
+    nativeCurrencySymbol,
+    chainId,
+    openWalletModal,
+  } = useWallet();
   const [walletCount, setWalletCount] = useState("100");
   const [wallets, setWallets] = useState<RelationshipWallet[]>([]);
   const [vault, setVault] = useState<WalletVault | null>(null);
@@ -392,6 +410,11 @@ const RelationshipManager = () => {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [draggingWalletId, setDraggingWalletId] = useState<string | null>(null);
+  const [relationshipZoom, setRelationshipZoom] = useState(DEFAULT_RELATIONSHIP_ZOOM);
+  const [relationshipScrollWalletId, setRelationshipScrollWalletId] = useState<string | null>(
+    null,
+  );
+  const relationshipGraphScrollRef = useRef<HTMLDivElement | null>(null);
   const [savedAbis, setSavedAbis] = useState<SavedAbi[]>([]);
   const [selectedAbiIndex, setSelectedAbiIndex] = useState("");
   const [contractAddress, setContractAddress] = useState("");
@@ -575,6 +598,44 @@ const RelationshipManager = () => {
       ),
     [graphRelations, relationshipWalletGroups.graphWallets],
   );
+  useEffect(() => {
+    if (!relationshipScrollWalletId) {
+      return;
+    }
+
+    const container = relationshipGraphScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    const node = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-relationship-wallet-id]"),
+    ).find((candidate) => candidate.dataset.relationshipWalletId === relationshipScrollWalletId);
+    if (!node) {
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const nextScrollPosition = getRelationshipAutoScrollPosition({
+      scrollTop: container.scrollTop,
+      scrollLeft: container.scrollLeft,
+      clientWidth: container.clientWidth,
+      clientHeight: container.clientHeight,
+      nodeTop: nodeRect.top - containerRect.top + container.scrollTop,
+      nodeBottom: nodeRect.bottom - containerRect.top + container.scrollTop,
+      nodeLeft: nodeRect.left - containerRect.left + container.scrollLeft,
+      nodeRight: nodeRect.right - containerRect.left + container.scrollLeft,
+    });
+
+    if (
+      nextScrollPosition.top !== container.scrollTop ||
+      nextScrollPosition.left !== container.scrollLeft
+    ) {
+      container.scrollTo({ ...nextScrollPosition, behavior: "smooth" });
+    }
+    setRelationshipScrollWalletId(null);
+  }, [relationshipGraphLayout, relationshipScrollWalletId, relationshipZoom]);
   useEffect(() => {
     if (relationshipWalletGroups.graphWallets.length === 0) {
       setTasks([]);
@@ -788,6 +849,7 @@ const RelationshipManager = () => {
       return;
     }
     setRelations(nextRelations);
+    setRelationshipScrollWalletId(walletId);
     setRootWalletIds((previous) => {
       const next = new Set(previous);
       next.delete(walletId);
@@ -798,6 +860,7 @@ const RelationshipManager = () => {
   const addRootWallet = (walletId: string) => {
     setErrorMessage("");
     setMessage("");
+    setRelationshipScrollWalletId(walletId);
     setRootWalletIds((previous) => new Set(previous).add(walletId));
   };
 
@@ -839,12 +902,39 @@ const RelationshipManager = () => {
     try {
       setIsQueryingBalances(true);
       const nextBalances: Record<string, WalletBalance> = {};
-      for (let start = 0; start < wallets.length; start += 10) {
-        const batch = wallets.slice(start, start + 10);
+      let multicallBalanceContract: Contract | null = null;
+      if (multicallProvider) {
+        try {
+          const multicallCode = await provider.getCode(MULTICALL3_ADDRESS);
+          if (multicallCode !== "0x") {
+            multicallBalanceContract = new Contract(
+              MULTICALL3_ADDRESS,
+              MULTICALL3_BALANCE_ABI,
+              multicallProvider,
+            );
+          }
+        } catch {
+          multicallBalanceContract = null;
+        }
+      }
+
+      for (const batch of splitRelationshipBalanceBatches(wallets, BALANCE_QUERY_BATCH_SIZE)) {
         await Promise.all(
           batch.map(async (wallet) => {
             try {
-              const nativeBalance = await provider.getBalance(wallet.address);
+              let nativeBalance: bigint;
+              try {
+                nativeBalance = multicallBalanceContract
+                  ? await multicallBalanceContract.getFunction("getEthBalance")(
+                      wallet.address,
+                    )
+                  : await provider.getBalance(wallet.address);
+              } catch (error) {
+                if (!multicallBalanceContract) {
+                  throw error;
+                }
+                nativeBalance = await provider.getBalance(wallet.address);
+              }
               nextBalances[wallet.id] = {
                 native: formatEther(nativeBalance),
               };
@@ -1602,35 +1692,98 @@ const RelationshipManager = () => {
             </button>
           </div>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-            <div className="min-h-[380px] overflow-auto rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
-              <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                <span className="rounded-full bg-white px-3 py-1 shadow-sm">Graph View</span>
-                <span>
-                  {relationshipGraphLayout.nodes.filter((node) => node.level === 0).length} Root
-                </span>
+            <div className="flex h-[min(70vh,640px)] min-h-[380px] flex-col overflow-hidden rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+              <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-white px-3 py-1 shadow-sm">Graph View</span>
+                  <span>
+                    {relationshipGraphLayout.nodes.filter((node) => node.level === 0).length} Root
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 normal-case tracking-normal shadow-sm">
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-base font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300"
+                    onClick={() =>
+                      setRelationshipZoom((zoom) => adjustRelationshipZoom(zoom, -0.1))
+                    }
+                    disabled={relationshipZoom <= MIN_RELATIONSHIP_ZOOM}
+                    aria-label="缩小关系图"
+                    title="缩小关系图"
+                  >
+                    −
+                  </button>
+                  <span
+                    className="min-w-[3.5rem] text-center text-[11px] font-semibold text-slate-600"
+                    aria-live="polite"
+                  >
+                    {Math.round(relationshipZoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-base font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300"
+                    onClick={() =>
+                      setRelationshipZoom((zoom) => adjustRelationshipZoom(zoom, 0.1))
+                    }
+                    disabled={relationshipZoom >= MAX_RELATIONSHIP_ZOOM}
+                    aria-label="放大关系图"
+                    title="放大关系图"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                    onClick={() => setRelationshipZoom(DEFAULT_RELATIONSHIP_ZOOM)}
+                    disabled={relationshipZoom === DEFAULT_RELATIONSHIP_ZOOM}
+                  >
+                    重置
+                  </button>
+                </div>
               </div>
-              <div className="pb-2">
-                {relationshipWalletGroups.graphWallets.length > 0 && (
-                  <RelationshipGraphView
-                    layout={relationshipGraphLayout}
-                    draggingWalletId={draggingWalletId}
-                    onDragStart={setDraggingWalletId}
-                    onDragEnd={() => setDraggingWalletId(null)}
-                    onDropOnInviter={handleSetRelation}
-                    onRemoveRelation={(walletId) => handleSetRelation(walletId, "")}
-                    onRemoveRoot={removeRootWallet}
-                  />
-                )}
-                {wallets.length > 0 && relationshipWalletGroups.graphWallets.length === 0 && (
-                  <div className="flex min-h-48 w-full min-w-[480px] items-center justify-center text-sm text-slate-400">
-                    从右侧选择钱包设为 Root
-                  </div>
-                )}
-                {wallets.length === 0 && (
-                  <div className="flex min-h-48 w-full min-w-[480px] items-center justify-center text-sm text-slate-400">
-                    暂无钱包
-                  </div>
-                )}
+              <div ref={relationshipGraphScrollRef} className="min-h-0 flex-1 overflow-auto">
+                <div
+                  className="pb-2"
+                  style={
+                    relationshipWalletGroups.graphWallets.length > 0
+                      ? {
+                          width: relationshipGraphLayout.width * relationshipZoom,
+                          height: relationshipGraphLayout.height * relationshipZoom,
+                        }
+                      : undefined
+                  }
+                >
+                  {relationshipWalletGroups.graphWallets.length > 0 && (
+                    <div
+                      style={{
+                        width: relationshipGraphLayout.width,
+                        height: relationshipGraphLayout.height,
+                        transform: `scale(${relationshipZoom})`,
+                        transformOrigin: "top left",
+                      }}
+                    >
+                      <RelationshipGraphView
+                        layout={relationshipGraphLayout}
+                        draggingWalletId={draggingWalletId}
+                        onDragStart={setDraggingWalletId}
+                        onDragEnd={() => setDraggingWalletId(null)}
+                        onDropOnInviter={handleSetRelation}
+                        onRemoveRelation={(walletId) => handleSetRelation(walletId, "")}
+                        onRemoveRoot={removeRootWallet}
+                      />
+                    </div>
+                  )}
+                  {wallets.length > 0 && relationshipWalletGroups.graphWallets.length === 0 && (
+                    <div className="flex min-h-48 w-full min-w-[480px] items-center justify-center text-sm text-slate-400">
+                      从右侧选择钱包设为 Root
+                    </div>
+                  )}
+                  {wallets.length === 0 && (
+                    <div className="flex min-h-48 w-full min-w-[480px] items-center justify-center text-sm text-slate-400">
+                      暂无钱包
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

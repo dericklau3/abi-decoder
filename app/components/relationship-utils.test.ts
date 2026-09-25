@@ -5,9 +5,15 @@ import {
   buildRelationshipCallArgs,
   buildRelationshipGraphLayout,
   buildRelationshipForest,
+  adjustRelationshipZoom,
+  clampRelationshipZoom,
+  DEFAULT_RELATIONSHIP_ZOOM,
   exportRelationshipCsv,
   exportRelationshipTxt,
+  getRelationshipAutoScrollPosition,
   getAddressFunctionOptions,
+  MAX_RELATIONSHIP_ZOOM,
+  MIN_RELATIONSHIP_ZOOM,
   needsErc20Approval,
   splitGraphAndAvailableWallets,
   validateRelationships,
@@ -23,6 +29,47 @@ const wallets: RelationshipWallet[] = [
 ];
 
 describe("relationship-utils", () => {
+  test("scrolls a newly added node into the graph viewport", () => {
+    expect(
+      getRelationshipAutoScrollPosition({
+        scrollTop: 100,
+        scrollLeft: 0,
+        clientWidth: 400,
+        clientHeight: 300,
+        nodeTop: 420,
+        nodeBottom: 500,
+        nodeLeft: 20,
+        nodeRight: 180,
+      }),
+    ).toEqual({ top: 216, left: 0 });
+
+    expect(
+      getRelationshipAutoScrollPosition({
+        scrollTop: 300,
+        scrollLeft: 100,
+        clientWidth: 400,
+        clientHeight: 300,
+        nodeTop: 240,
+        nodeBottom: 280,
+        nodeLeft: 40,
+        nodeRight: 80,
+      }),
+    ).toEqual({ top: 224, left: 24 });
+  });
+
+  test("keeps graph zoom within bounds and changes it by the requested step", () => {
+    expect(DEFAULT_RELATIONSHIP_ZOOM).toBe(1);
+    expect(clampRelationshipZoom(0.2)).toBe(MIN_RELATIONSHIP_ZOOM);
+    expect(clampRelationshipZoom(2.5)).toBe(MAX_RELATIONSHIP_ZOOM);
+    expect(adjustRelationshipZoom(1, 0.1)).toBe(1.1);
+    expect(adjustRelationshipZoom(MIN_RELATIONSHIP_ZOOM, -0.1)).toBe(
+      MIN_RELATIONSHIP_ZOOM,
+    );
+    expect(adjustRelationshipZoom(MAX_RELATIONSHIP_ZOOM, 0.1)).toBe(
+      MAX_RELATIONSHIP_ZOOM,
+    );
+  });
+
   test("builds a level-ordered execution plan with root tasks first", () => {
     const relations: RelationshipRelation[] = [
       { walletId: "wallet-2", inviterId: "wallet-1" },

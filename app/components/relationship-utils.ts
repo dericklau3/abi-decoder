@@ -109,6 +109,56 @@ export type SplitRelationshipWalletsResult = {
   availableWallets: RelationshipWallet[];
 };
 
+export type RelationshipScrollMetrics = {
+  scrollTop: number;
+  scrollLeft: number;
+  clientWidth: number;
+  clientHeight: number;
+  nodeTop: number;
+  nodeBottom: number;
+  nodeLeft: number;
+  nodeRight: number;
+};
+
+export const MIN_RELATIONSHIP_ZOOM = 0.5;
+export const MAX_RELATIONSHIP_ZOOM = 2;
+export const DEFAULT_RELATIONSHIP_ZOOM = 1;
+
+export const clampRelationshipZoom = (zoom: number) =>
+  Math.min(MAX_RELATIONSHIP_ZOOM, Math.max(MIN_RELATIONSHIP_ZOOM, zoom));
+
+export const adjustRelationshipZoom = (zoom: number, delta: number) =>
+  clampRelationshipZoom(Number((zoom + delta).toFixed(2)));
+
+export const getRelationshipAutoScrollPosition = ({
+  scrollTop,
+  scrollLeft,
+  clientWidth,
+  clientHeight,
+  nodeTop,
+  nodeBottom,
+  nodeLeft,
+  nodeRight,
+}: RelationshipScrollMetrics) => {
+  const margin = 16;
+  let top = scrollTop;
+  let left = scrollLeft;
+
+  if (nodeTop < scrollTop + margin) {
+    top = Math.max(0, nodeTop - margin);
+  } else if (nodeBottom > scrollTop + clientHeight - margin) {
+    top = nodeBottom - clientHeight + margin;
+  }
+
+  if (nodeLeft < scrollLeft + margin) {
+    left = Math.max(0, nodeLeft - margin);
+  } else if (nodeRight > scrollLeft + clientWidth - margin) {
+    left = nodeRight - clientWidth + margin;
+  }
+
+  return { top, left };
+};
+
 export const needsErc20Approval = (allowance: bigint, requiredAmount: bigint) =>
   allowance < requiredAmount;
 

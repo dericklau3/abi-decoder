@@ -1,6 +1,7 @@
 "use client";
 
 import { BrowserProvider } from "ethers";
+import { MulticallProvider } from "@ethers-ext/provider-multicall";
 import { createContext, useContext, useMemo } from "react";
 import { useAccountModal, useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId, useConnectorClient, useDisconnect } from "wagmi";
@@ -13,6 +14,7 @@ export type InjectedProvider = {
 
 type WalletContextValue = {
   provider: BrowserProvider | null;
+  multicallProvider: MulticallProvider | null;
   injected: InjectedProvider | null;
   account: string;
   networkName: string;
@@ -49,9 +51,15 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     });
   }, [connectorClient]);
 
+  const multicallProvider = useMemo(
+    () => (provider ? new MulticallProvider(provider) : null),
+    [provider],
+  );
+
   const value = useMemo<WalletContextValue>(
     () => ({
       provider,
+      multicallProvider,
       injected,
       account: account.address ?? "",
       networkName: account.chain?.name ?? "",
@@ -69,6 +77,7 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
     }),
     [
       provider,
+      multicallProvider,
       injected,
       account,
       chainId,

@@ -5,6 +5,7 @@
     "": {
       "name": "evm-parser",
       "dependencies": {
+        "@ethers-ext/provider-multicall": "^6.0.0-beta.3",
         "@rainbow-me/rainbowkit": "^2.2.11",
         "@tanstack/react-query": "^5.100.11",
         "ethers": "^6.13.4",
@@ -67,6 +68,8 @@
     "@ethereumjs/tx": ["@ethereumjs/tx@4.2.0", "", { "dependencies": { "@ethereumjs/common": "^3.2.0", "@ethereumjs/rlp": "^4.0.1", "@ethereumjs/util": "^8.1.0", "ethereum-cryptography": "^2.0.0" } }, "sha512-1nc6VO4jtFd172BbSnTnDQVr9IYBFl1y4xPzZdtkrkKIncBCkdbgfdRV+MiTkJYAtTxvV12GRZLqBFT1PNK6Yw=="],
 
     "@ethereumjs/util": ["@ethereumjs/util@8.1.0", "", { "dependencies": { "@ethereumjs/rlp": "^4.0.1", "ethereum-cryptography": "^2.0.0", "micro-ftch": "^0.3.1" } }, "sha512-zQ0IqbdX8FZ9aw11vP+dZkKDkS+kgIvQPHnSAXzP9pLu+Rfu3D3XEeLbicvoXJTYnhZiPmsZUxgdzXwNKxRPbA=="],
+
+    "@ethers-ext/provider-multicall": ["@ethers-ext/provider-multicall@6.0.0-beta.3", "", { "dependencies": { "ethers": "^6.13.4" } }, "sha512-LCanb3VjBM7xHmO2x9uLh2piqfVxRTyhqhBo/AF6MZnldq4bTUm2oc4tMDfduPD79gGAnQax9yBSsR2aso1j1w=="],
 
     "@gemini-wallet/core": ["@gemini-wallet/core@0.3.2", "", { "dependencies": { "@metamask/rpc-errors": "7.0.2", "eventemitter3": "5.0.1" }, "peerDependencies": { "viem": ">=2.0.0" } }, "sha512-Z4aHi3ECFf5oWYWM3F1rW83GJfB9OvhBYPTmb5q+VyK3uvzvS48lwo+jwh2eOoCRWEuT/crpb9Vwp2QaS5JqgQ=="],
 
