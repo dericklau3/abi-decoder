@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Contract, JsonRpcProvider } from "ethers";
+import ProxyHistory from "./ProxyHistory";
 import {
   BEACON_ABI,
   BEACON_SLOT,
@@ -317,6 +318,7 @@ const ProxyLookup = () => {
           </div>
         </section>
       )}
+      <ProxyHistory rpcUrl={rpcUrl} proxyInput={proxyInput} mode={mode} onCopy={handleCopy} copyMessage={copyMessage} />
     </div>
   );
 };
