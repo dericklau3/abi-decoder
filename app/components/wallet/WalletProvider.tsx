@@ -2,9 +2,10 @@
 
 import { BrowserProvider } from "ethers";
 import { MulticallProvider } from "@ethers-ext/provider-multicall";
-import { createContext, useContext, useMemo } from "react";
-import { useAccountModal, useConnectModal } from "@rainbow-me/rainbowkit";
-import { useAccount, useChainId, useConnectorClient, useDisconnect } from "wagmi";
+import { createContext, useContext, useMemo, useState } from "react";
+import { WalletDialog } from "./WalletDialog";
+import { createWalletProvider, getWalletNetwork } from "./wallet-network";
+import { useAccount, useConnectorClient, useDisconnect } from "wagmi";
 
 export type InjectedProvider = {
   on?: (event: string, handler: (...args: any[]) => void) => void;
@@ -29,27 +30,23 @@ const WalletContext = createContext<WalletContextValue | null>(null);
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
   const account = useAccount();
-  const chainId = useChainId();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const chainId = account.isConnected ? account.chainId : undefined;
+  const network = chainId === undefined ? undefined : getWalletNetwork(chainId, account.chain);
   const { data: connectorClient, isLoading: isConnectorClientLoading } =
-    useConnectorClient();
+    useConnectorClient({ chainId, query: { enabled: account.isConnected && chainId !== undefined } });
   const { disconnect } = useDisconnect();
-  const { openConnectModal } = useConnectModal();
-  const { openAccountModal } = useAccountModal();
-
-  const injected = useMemo<InjectedProvider | null>(() => {
-    return (connectorClient?.transport as InjectedProvider | undefined) ?? null;
-  }, [connectorClient]);
 
   const provider = useMemo(() => {
-    if (!connectorClient) {
-      return null;
-    }
-    return new BrowserProvider(connectorClient.transport as any, {
-      chainId: connectorClient.chain.id,
-      name: connectorClient.chain.name,
-      ensAddress: connectorClient.chain.contracts?.ensRegistry?.address,
-    });
-  }, [connectorClient]);
+    if (!connectorClient || chainId === undefined) return null;
+    // The connector client may have no chain metadata for an unlisted network.
+    if (connectorClient.chain && connectorClient.chain.id !== chainId) return null;
+    return createWalletProvider(connectorClient.transport, getWalletNetwork(chainId, account.chain));
+  }, [connectorClient, chainId, account.chain]);
+
+  const injected = provider
+    ? (connectorClient!.transport as InjectedProvider)
+    : null;
 
   const multicallProvider = useMemo(
     () => (provider ? new MulticallProvider(provider) : null),
@@ -62,17 +59,11 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       multicallProvider,
       injected,
       account: account.address ?? "",
-      networkName: account.chain?.name ?? "",
-      nativeCurrencySymbol: account.chain?.nativeCurrency?.symbol ?? "ETH",
-      chainId: account.isConnected ? account.chainId ?? chainId ?? null : null,
+      networkName: network?.name ?? "",
+      nativeCurrencySymbol: network?.symbol ?? "原生币",
+      chainId: chainId ?? null,
       isConnecting: account.isConnecting || account.isReconnecting || isConnectorClientLoading,
-      openWalletModal: () => {
-        if (account.isConnected) {
-          openAccountModal?.();
-          return;
-        }
-        openConnectModal?.();
-      },
+      openWalletModal: () => setDialogOpen(true),
       disconnectWallet: () => disconnect(),
     }),
     [
@@ -82,13 +73,13 @@ export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
       account,
       chainId,
       isConnectorClientLoading,
-      openAccountModal,
-      openConnectModal,
+      network?.name,
+      network?.symbol,
       disconnect,
     ],
   );
 
-  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+  return <WalletContext.Provider value={value}>{children}<WalletDialog open={dialogOpen} onClose={() => setDialogOpen(false)} /></WalletContext.Provider>;
 };
 
 export const useWallet = () => {

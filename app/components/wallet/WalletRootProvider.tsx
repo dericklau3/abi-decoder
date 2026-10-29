@@ -1,7 +1,7 @@
 "use client";
 
 import "./wallet-console-guard";
-import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { getDefaultConfig } from "@rainbow-me/rainbowkit";
 import {
   injectedWallet,
   walletConnectWallet,
@@ -83,9 +83,7 @@ export default function WalletRootProvider({ children }: { children: React.React
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider>
-          <WalletProvider>{children}</WalletProvider>
-        </RainbowKitProvider>
+        <WalletProvider>{children}</WalletProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

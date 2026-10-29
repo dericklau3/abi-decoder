@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useWallet } from "./wallet/WalletProvider";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -32,74 +32,17 @@ const navItems: NavItem[] = [
 const walletButtonClass =
   "rounded-2xl border border-slate-200 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_16px_35px_-24px_rgba(15,23,42,0.75)] backdrop-blur transition hover:border-slate-300 hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60";
 
-const walletDangerButtonClass =
-  "rounded-2xl border border-rose-200 bg-rose-50/95 px-4 py-2 text-sm font-semibold text-rose-700 shadow-[0_16px_35px_-24px_rgba(190,18,60,0.75)] backdrop-blur transition hover:border-rose-300 hover:bg-rose-50";
-
-const WalletConnectControl = () => (
-  <ConnectButton.Custom>
-    {({
-      account,
-      chain,
-      mounted,
-      openAccountModal,
-      openChainModal,
-      openConnectModal,
-    }) => {
-      const ready = mounted;
-      const connected = ready && account && chain;
-
-      if (!ready) {
-        return (
-          <button className={walletButtonClass} type="button" disabled>
-            Connect Wallet
-          </button>
-        );
-      }
-
-      if (!connected) {
-        return (
-          <button className={walletButtonClass} type="button" onClick={openConnectModal}>
-            Connect Wallet
-          </button>
-        );
-      }
-
-      if (chain.unsupported) {
-        return (
-          <button className={walletDangerButtonClass} type="button" onClick={openChainModal}>
-            Wrong Network
-          </button>
-        );
-      }
-
-      return (
-        <div className="flex items-center gap-2">
-          <button className={walletButtonClass} type="button" onClick={openChainModal}>
-            {chain.hasIcon && (
-              <span
-                className="mr-2 inline-block h-3 w-3 overflow-hidden rounded-full align-[-1px]"
-                style={{ background: chain.iconBackground }}
-              >
-                {chain.iconUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    alt={chain.name ?? "Chain"}
-                    className="h-3 w-3"
-                    src={chain.iconUrl}
-                  />
-                )}
-              </span>
-            )}
-            {chain.name}
-          </button>
-          <button className={walletButtonClass} type="button" onClick={openAccountModal}>
-            {account.displayName}
-          </button>
-        </div>
-      );
-    }}
-  </ConnectButton.Custom>
-);
+const WalletConnectControl = () => {
+  const { account, chainId, networkName, openWalletModal, isConnecting } = useWallet();
+  return (
+    <div className="flex items-center gap-2">
+      {account && chainId !== null && <button className={walletButtonClass} type="button" onClick={openWalletModal}>{networkName || `Chain #${chainId}`}</button>}
+      <button className={walletButtonClass} type="button" onClick={openWalletModal}>
+        {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : isConnecting ? "连接中…" : "Connect Wallet"}
+      </button>
+    </div>
+  );
+};
 
 const AppShell = ({ children }: { children: React.ReactNode }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
