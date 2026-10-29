@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Contract, formatUnits, getAddress } from "ethers";
+import { robinhoodTestnet } from "./wallet/chains";
 import { useWallet } from "./wallet/WalletProvider";
 import {
   BatchTransferAmountMode,
@@ -11,10 +12,18 @@ import {
 } from "./batch-transfer-utils";
 import { extractContractErrorMessage } from "./contract-interaction-utils";
 
-const BATCH_TRANSFER_ADDRESS = "0x3b94A2aCAB8544B5d6cc11C0E18dAE2Df845E74A";
-const BSC_TESTNET_CHAIN_ID = 97;
-const BSC_TESTNET_REQUIRED_MESSAGE =
-  "请先切换到 BSC Testnet 后再授权或发起批量转账";
+const BATCH_TRANSFER_CONTRACTS: Record<number, { name: string; address: string }> = {
+  97: {
+    name: "BSC Testnet",
+    address: "0x3b94A2aCAB8544B5d6cc11C0E18dAE2Df845E74A",
+  },
+  [robinhoodTestnet.id]: {
+    name: "Robinhood Testnet",
+    address: "0xC0609AD1CEF39a8f066D0c95a0EE48f39040B223",
+  },
+};
+const SUPPORTED_CHAIN_REQUIRED_MESSAGE =
+  "请先切换到 BSC Testnet 或 Robinhood Testnet 后再授权或发起批量转账";
 
 const BATCH_TRANSFER_ABI = [
   "function batchTransferEth(address[] receivers,uint256 amount) payable",
@@ -74,7 +83,9 @@ const BatchTransfer = () => {
 
   const parsedDecimals = assetType === "erc721" ? 0 : Number(decimals);
   const effectiveAmountMode = assetType === "erc721" ? "varied" : amountMode;
-  const isExpectedChain = chainId === BSC_TESTNET_CHAIN_ID;
+  const deployment = chainId === null ? undefined : BATCH_TRANSFER_CONTRACTS[chainId];
+  const batchTransferAddress = deployment?.address ?? "";
+  const isExpectedChain = Boolean(deployment);
 
   const preview = useMemo(() => {
     try {
@@ -143,7 +154,7 @@ const BatchTransfer = () => {
       }
       if (!isExpectedChain) {
         setApprovalStatus("idle");
-        setApprovalMessage(BSC_TESTNET_REQUIRED_MESSAGE);
+        setApprovalMessage(SUPPORTED_CHAIN_REQUIRED_MESSAGE);
         return;
       }
 
@@ -170,9 +181,9 @@ const BatchTransfer = () => {
           assetType === "erc20"
             ? ((await token.allowance(
                 account,
-                BATCH_TRANSFER_ADDRESS,
+                batchTransferAddress,
               )) as bigint) >= preview.request.summary.totalAmount
-            : Boolean(await token.isApprovedForAll(account, BATCH_TRANSFER_ADDRESS));
+            : Boolean(await token.isApprovedForAll(account, batchTransferAddress));
         if (!isCanceled) {
           setApprovalStatus(approved ? "approved" : "not-approved");
           setApprovalMessage(
@@ -192,7 +203,7 @@ const BatchTransfer = () => {
     return () => {
       isCanceled = true;
     };
-  }, [account, assetType, isExpectedChain, provider, preview.request, tokenAddress]);
+  }, [account, assetType, batchTransferAddress, isExpectedChain, provider, preview.request, tokenAddress]);
 
   const handleApprove = async () => {
     setErrorMessage("");
@@ -211,8 +222,8 @@ const BatchTransfer = () => {
     }
     if (!isExpectedChain) {
       setApprovalStatus("idle");
-      setApprovalMessage(BSC_TESTNET_REQUIRED_MESSAGE);
-      setErrorMessage(BSC_TESTNET_REQUIRED_MESSAGE);
+      setApprovalMessage(SUPPORTED_CHAIN_REQUIRED_MESSAGE);
+      setErrorMessage(SUPPORTED_CHAIN_REQUIRED_MESSAGE);
       return;
     }
 
@@ -226,7 +237,7 @@ const BatchTransfer = () => {
 
     const approvalRequest = buildTokenApprovalRequest(
       assetType,
-      BATCH_TRANSFER_ADDRESS,
+      batchTransferAddress,
     );
     if (!approvalRequest) {
       return;
@@ -264,7 +275,7 @@ const BatchTransfer = () => {
 
   const handleCopyContract = async () => {
     try {
-      await navigator.clipboard.writeText(BATCH_TRANSFER_ADDRESS);
+      await navigator.clipboard.writeText(batchTransferAddress);
       setCopyMessage("合约地址已复制");
     } catch {
       setCopyMessage("复制失败，请检查浏览器权限");
@@ -285,7 +296,7 @@ const BatchTransfer = () => {
       return;
     }
     if (!isExpectedChain) {
-      setErrorMessage(BSC_TESTNET_REQUIRED_MESSAGE);
+      setErrorMessage(SUPPORTED_CHAIN_REQUIRED_MESSAGE);
       return;
     }
     if (assetType !== "eth" && approvalStatus !== "approved") {
@@ -298,13 +309,13 @@ const BatchTransfer = () => {
       if (typeof injected?.request === "function") {
         await injected.request({ method: "eth_requestAccounts" });
       }
-      const code = await provider.getCode(BATCH_TRANSFER_ADDRESS);
+      const code = await provider.getCode(batchTransferAddress);
       if (code === "0x") {
-        throw new Error("当前链上未找到批量转账合约，请切换到 BSC Testnet");
+        throw new Error("当前链上未找到批量转账合约，请检查合约地址与钱包网络");
       }
       const signer = await provider.getSigner();
       const contract = new Contract(
-        BATCH_TRANSFER_ADDRESS,
+        batchTransferAddress,
         BATCH_TRANSFER_ABI,
         signer,
       );
@@ -344,7 +355,7 @@ const BatchTransfer = () => {
           批量转账
         </h1>
         <p className="max-w-2xl text-sm text-slate-600 md:text-base">
-          使用 BSC Testnet BatchTransfer 合约批量发送 ETH、ERC20 或 ERC721。
+          使用 BSC Testnet 或 Robinhood Testnet BatchTransfer 合约批量发送 ETH、ERC20 或 ERC721。
           ERC20 与 ERC721 发送前需先授权该合约转出你的资产。
         </p>
       </div>
@@ -354,12 +365,12 @@ const BatchTransfer = () => {
           <div>
             <h2 className="text-lg font-semibold text-slate-900">合约与钱包</h2>
             <p className="mt-1 text-sm text-slate-500">
-              当前配置为 BSC Testnet，合约地址固定使用已部署实例。
+              {deployment ? `当前使用 ${deployment.name} 已部署合约。` : "请连接钱包并切换到 BSC Testnet 或 Robinhood Testnet。"}
             </p>
           </div>
-          {chainId !== null && chainId !== BSC_TESTNET_CHAIN_ID && (
+          {chainId !== null && !isExpectedChain && (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
-              当前不是 BSC Testnet，已禁用授权与发送
+              当前网络暂不支持，请切换到 BSC Testnet 或 Robinhood Testnet
             </span>
           )}
         </div>
@@ -373,9 +384,10 @@ const BatchTransfer = () => {
               type="button"
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:border-slate-300"
               onClick={handleCopyContract}
+              disabled={!isExpectedChain}
               title="复制合约地址"
             >
-              {shortAddress(BATCH_TRANSFER_ADDRESS)}
+              {shortAddress(batchTransferAddress) || "请切换到支持的网络"}
             </button>
           </div>
           <div>
