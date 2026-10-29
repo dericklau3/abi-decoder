@@ -132,6 +132,7 @@ const ContractInteractor = () => {
     account: sharedAccount,
     networkName: sharedNetworkName,
     chainId: sharedChainId,
+    nativeCurrencySymbol,
   } = useWallet();
 
   const [addressInput, setAddressInput] = useState("");
@@ -1446,7 +1447,7 @@ const ContractInteractor = () => {
                             {item.stateMutability === "payable" && (
                               <div className="mt-4">
                                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                                  发送 ETH (可选)
+                                  发送 {nativeCurrencySymbol} (可选)
                                 </label>
                                 <input
                                   type="text"

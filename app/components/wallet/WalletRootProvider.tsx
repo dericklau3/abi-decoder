@@ -20,6 +20,7 @@ import {
   polygon,
   sepolia,
 } from "wagmi/chains";
+import { arcTestnet, robinhoodTestnet } from "./chains";
 import { WalletProvider } from "./WalletProvider";
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
@@ -57,6 +58,8 @@ const config = getDefaultConfig({
     arbitrum,
     avalanche,
     sepolia,
+    robinhoodTestnet,
+    arcTestnet,
   ],
   transports: {
     [mainnet.id]: http(RPC_URLS.mainnet),
@@ -68,6 +71,8 @@ const config = getDefaultConfig({
     [arbitrum.id]: http(RPC_URLS.arbitrum),
     [avalanche.id]: http(RPC_URLS.avalanche),
     [sepolia.id]: http(RPC_URLS.sepolia),
+    [robinhoodTestnet.id]: http(),
+    [arcTestnet.id]: http(),
   },
   ssr: true,
 });
