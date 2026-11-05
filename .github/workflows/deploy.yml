@@ -20,10 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup patched Node.js LTS
+      - name: Setup patched Node.js 26 LTS
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '26'
+
+      - name: Check Node runtime security baseline
+        run: node -e "const [major, minor, patch] = process.versions.node.split('.').map(Number); if (major !== 26 || minor < 12 || (minor === 12 && patch < 1)) { console.error('Node.js >=26.12.1 <27 required, found ' + process.versions.node); process.exit(1); }"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
