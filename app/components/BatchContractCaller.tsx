@@ -275,6 +275,8 @@ const BatchContractCaller = () => {
     } catch (error) {
       setErrorMessage("批量调用失败：" + extractContractErrorMessage(error));
     } finally {
+      // Do not retain raw private keys in React state after transactions finish.
+      setPrivateKeysText("");
       setIsCalling(false);
     }
   };
@@ -305,7 +307,7 @@ const BatchContractCaller = () => {
           <div>
             <h2 className="text-lg font-semibold text-slate-900">基础信息</h2>
             <p className="mt-1 text-sm text-slate-500">
-              私钥只在当前页面用于签名，不保存到浏览器存储。
+              私钥只在当前页面内存中用于签名，不保存到浏览器存储；调用结束后自动清空。请只使用测试钱包，切勿输入有真实资产的私钥。
             </p>
           </div>
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
@@ -353,6 +355,10 @@ const BatchContractCaller = () => {
             className="min-h-[150px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
             value={privateKeysText}
             onChange={(event) => setPrivateKeysText(event.target.value)}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder={"每行一个私钥\n0x...\n0x..."}
           />
         </div>
@@ -368,7 +374,7 @@ const BatchContractCaller = () => {
             <div className="space-y-2">
               {privateKeyPreviews.map((item) => (
                 <div
-                  key={`${item.index}-${item.privateKey}`}
+                  key={item.index}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
