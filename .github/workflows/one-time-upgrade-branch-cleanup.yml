@@ -1,0 +1,31 @@
+name: One-time upgrade branch cleanup
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/one-time-upgrade-branch-cleanup.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  delete-upgrade-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged upgrade branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch='chore/upgrade-node24-toolchain-20261105'
+          status=$(curl -sS -o /tmp/branch-delete-response -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}")
+          if [ "$status" = "204" ] || [ "$status" = "404" ] || [ "$status" = "422" ]; then
+            echo "Branch cleanup HTTP $status"
+          else
+            echo "Delete failed HTTP $status"
+            cat /tmp/branch-delete-response
+            exit 1
+          fi
