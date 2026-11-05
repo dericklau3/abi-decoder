@@ -35,6 +35,12 @@ export type TokenApprovalRequest = {
 
 const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
 
+const assertTransferAmount = (amount: bigint) => {
+  if (amount <= 0n || amount > MAX_UINT256) {
+    throw new Error("转账金额必须大于 0 且不超过 uint256 上限");
+  }
+};
+
 const normalizeAddressInput = (value: string) => {
   const trimmed = value.trim();
   return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
@@ -99,7 +105,9 @@ export const buildBatchTransferRequest = ({
 
   if (amountMode === "equal") {
     const amount = parseUnits(singleAmountText.trim(), decimals);
+    assertTransferAmount(amount);
     const totalAmount = amount * BigInt(receivers.length);
+    assertTransferAmount(totalAmount);
     return {
       method:
         assetType === "eth"
@@ -120,7 +128,9 @@ export const buildBatchTransferRequest = ({
     throw new Error("收款地址数量需要和金额数量一致");
   }
 
+  amounts.forEach(assertTransferAmount);
   const totalAmount = sumValues(amounts);
+  assertTransferAmount(totalAmount);
   return {
     method:
       assetType === "eth"
@@ -138,6 +148,7 @@ export const buildBatchTransferRequest = ({
 export const buildTokenApprovalRequest = (
   assetType: BatchTransferAssetType,
   spenderAddress: string,
+  transferAmount?: bigint,
 ): TokenApprovalRequest | null => {
   if (assetType === "eth") {
     return null;
@@ -145,9 +156,13 @@ export const buildTokenApprovalRequest = (
 
   const spender = getAddress(normalizeAddressInput(spenderAddress));
   if (assetType === "erc20") {
+    if (typeof transferAmount !== "bigint") {
+      throw new Error("ERC20 授权必须提供本次转账的确切总金额");
+    }
+    assertTransferAmount(transferAmount);
     return {
       method: "approve(address,uint256)",
-      args: [spender, MAX_UINT256],
+      args: [spender, transferAmount],
     };
   }
 

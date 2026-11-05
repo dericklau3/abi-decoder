@@ -16,7 +16,6 @@ export type BatchCallFunctionInfo = {
 
 export type PrivateKeyAddressPreview = {
   index: number;
-  privateKey: string;
   address?: string;
   error?: string;
 };
@@ -38,6 +37,22 @@ export const parsePrivateKeyLines = (value: string) => {
   if (privateKeys.length === 0) {
     throw new Error("请至少填写一个私钥");
   }
+  if (privateKeys.length > 100) {
+    throw new Error("单次最多支持 100 个测试钱包私钥");
+  }
+  if (privateKeys.some((key) => !/^0x[0-9a-fA-F]{64}$/.test(key))) {
+    throw new Error("私钥格式无效：每行必须是 32 字节十六进制私钥");
+  }
+  if (new Set(privateKeys.map((key) => key.toLowerCase())).size !== privateKeys.length) {
+    throw new Error("检测到重复私钥，已阻止重复发送交易");
+  }
+  for (const key of privateKeys) {
+    try {
+      new Wallet(key);
+    } catch {
+      throw new Error("存在无效的私钥，请逐行检查后重试");
+    }
+  }
 
   return privateKeys;
 };
@@ -54,13 +69,11 @@ export const getPrivateKeyAddressPreviews = (
       try {
         return {
           index,
-          privateKey,
           address: new Wallet(privateKey).address,
         };
       } catch {
         return {
           index,
-          privateKey,
           error: "私钥格式无效",
         };
       }

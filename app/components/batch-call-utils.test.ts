@@ -17,16 +17,23 @@ describe("batch-call-utils", () => {
   test("parses private keys one per line and adds missing prefix", () => {
     expect(
       parsePrivateKeyLines(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n0x1111111111111111111111111111111111111111111111111111111111111111",
       ),
     ).toEqual([
       "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      "0x1111111111111111111111111111111111111111111111111111111111111111",
     ]);
   });
 
   test("rejects empty private key input", () => {
     expect(() => parsePrivateKeyLines(" \n ")).toThrow("请至少填写一个私钥");
+  });
+
+  test("rejects malformed or duplicate private keys before sending", () => {
+    const valid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    expect(() => parsePrivateKeyLines("abc")).toThrow("私钥格式无效");
+    expect(() => parsePrivateKeyLines(valid + "\n0x" + valid)).toThrow("重复私钥");
+    expect(() => parsePrivateKeyLines(Array(101).fill(valid).join("\n"))).toThrow("最多支持 100");
   });
 
   test("previews addresses for valid private keys", () => {
@@ -37,7 +44,6 @@ describe("batch-call-utils", () => {
     ).toEqual([
       {
         index: 0,
-        privateKey: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         address: "0xFCAd0B19bB29D4674531d6f115237E16AfCE377c",
       },
     ]);
@@ -47,7 +53,6 @@ describe("batch-call-utils", () => {
     expect(getPrivateKeyAddressPreviews("not-a-key")).toEqual([
       {
         index: 0,
-        privateKey: "0xnot-a-key",
         error: "私钥格式无效",
       },
     ]);
