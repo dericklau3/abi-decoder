@@ -146,6 +146,10 @@ const parseVault = (value: unknown): WalletVault => {
   if (vault.version !== 1 || !Array.isArray(vault.wallets)) {
     throw new Error("Vault 文件版本或钱包列表无效");
   }
+  if (vault.wallets.length === 0 || vault.wallets.length > 500) {
+    throw new Error("Vault 钱包数量需要是 1 到 500");
+  }
+  const walletIds = new Set<string>();
   return {
     version: 1,
     createdAt: typeof vault.createdAt === "string" ? vault.createdAt : new Date().toISOString(),
@@ -154,8 +158,15 @@ const parseVault = (value: unknown): WalletVault => {
         throw new Error(`第 ${index + 1} 个钱包格式无效`);
       }
       const item = wallet as Partial<VaultWallet>;
-      if (!item.id || !item.privateKey) {
+      if (typeof item.id !== "string" || !item.id.trim() || typeof item.privateKey !== "string") {
         throw new Error(`第 ${index + 1} 个钱包缺少必要字段`);
+      }
+      if (walletIds.has(item.id)) {
+        throw new Error(`Vault 中存在重复的钱包 ID: ${item.id}`);
+      }
+      walletIds.add(item.id);
+      if (!/^0x[0-9a-fA-F]{64}$/.test(item.privateKey)) {
+        throw new Error(`第 ${index + 1} 个钱包的私钥格式无效`);
       }
       const derivedAddress = new Wallet(item.privateKey).address;
       return {
@@ -766,6 +777,9 @@ const RelationshipManager = () => {
     }
     try {
       setIsImporting(true);
+      if (file.size > 1024 * 1024) {
+        throw new Error("Vault 文件不能超过 1 MB");
+      }
       const text = await file.text();
       const nextVault = parseVault(JSON.parse(text));
       importParsedVault(nextVault);
@@ -1474,7 +1488,7 @@ const RelationshipManager = () => {
           <div>
             <h2 className="text-lg font-semibold text-slate-900">钱包管理</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Vault 直接保存 privateKey，选择文件后立即导入；请只用于测试钱包。
+              Vault 是未加密的明文私钥文件，仅供测试钱包使用。请离线保管且不要上传至网站、云盘或 GitHub，切勿导入持有真实资产的钱包。
             </p>
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
