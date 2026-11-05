@@ -126,19 +126,42 @@ describe("batch-transfer-utils", () => {
     expect(buildTokenApprovalRequest("eth", "0x000000000000000000000000000000000000dEaD")).toBeNull();
   });
 
-  test("builds max erc20 approval request", () => {
+  test("builds exact-amount erc20 approval instead of unlimited allowance", () => {
     expect(
       buildTokenApprovalRequest(
         "erc20",
         "0x3b94A2aCAB8544B5d6cc11C0E18dAE2Df845E74A",
+        12500000n,
       ),
     ).toEqual({
       method: "approve(address,uint256)",
       args: [
         "0x3b94A2aCAB8544B5d6cc11C0E18dAE2Df845E74A",
-        (1n << 256n) - 1n,
+        12500000n,
       ],
     });
+  });
+
+  test("rejects missing or excessive ERC20 approval amount", () => {
+    const spender = "0x3b94A2aCAB8544B5d6cc11C0E18dAE2Df845E74A";
+    expect(() => buildTokenApprovalRequest("erc20", spender)).toThrow("确切总金额");
+    expect(() => buildTokenApprovalRequest("erc20", spender, 0n)).toThrow("转账金额");
+    expect(() => buildTokenApprovalRequest("erc20", spender, -1n)).toThrow("转账金额");
+    expect(() => buildTokenApprovalRequest("erc20", spender, 1n << 256n)).toThrow("转账金额");
+  });
+
+  test("rejects zero and negative transfer amounts", () => {
+    const input = {
+      assetType: "erc20" as const,
+      amountMode: "equal" as const,
+      receiversText: "0x000000000000000000000000000000000000dEaD",
+      singleAmountText: "0",
+      amountsText: "",
+      tokenAddressText: "0x0000000000000000000000000000000000000001",
+      decimals: 18,
+    };
+    expect(() => buildBatchTransferRequest(input)).toThrow("转账金额");
+    expect(() => buildBatchTransferRequest({ ...input, singleAmountText: "-1" })).toThrow("转账金额");
   });
 
   test("builds erc721 approval-for-all request", () => {
