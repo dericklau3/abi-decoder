@@ -17,11 +17,11 @@ describe("batch-call-utils", () => {
   test("parses private keys one per line and adds missing prefix", () => {
     expect(
       parsePrivateKeyLines(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n0x1111111111111111111111111111111111111111111111111111111111111111",
       ),
     ).toEqual([
       "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "0x1111111111111111111111111111111111111111111111111111111111111111",
     ]);
   });
 
@@ -32,7 +32,7 @@ describe("batch-call-utils", () => {
   test("rejects malformed or duplicate private keys before sending", () => {
     const valid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     expect(() => parsePrivateKeyLines("abc")).toThrow("私钥格式无效");
-    expect(() => parsePrivateKeyLines(valid + "\\n0x" + valid)).toThrow("重复私钥");
+    expect(() => parsePrivateKeyLines(valid + "\n0x" + valid)).toThrow("重复私钥");
     expect(() => parsePrivateKeyLines(Array(101).fill(valid).join("\\n"))).toThrow("最多支持 100");
   });
 
