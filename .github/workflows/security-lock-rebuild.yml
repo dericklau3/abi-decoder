@@ -1,0 +1,24 @@
+name: Generate patched dependency lockfile (temporary)
+on:
+  push:
+    branches:
+      - security/harden-wallet-operations-20261105
+    paths:
+      - .github/workflows/security-lock-rebuild.yml
+permissions:
+  contents: read
+jobs:
+  regenerate-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Resolve patched dependencies
+        run: bun install
+      - name: Emit regenerated lockfile for secure retrieval
+        run: |
+          echo "LOCK_DUMP_BEGIN"
+          sed 's/^/LOCK_DATA:/' bun.lock
+          echo "LOCK_DUMP_END"
