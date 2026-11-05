@@ -235,9 +235,15 @@ const BatchTransfer = () => {
       return;
     }
 
+    if (!preview.request) {
+      setErrorMessage(preview.error || "请先填写有效的转账参数");
+      return;
+    }
+
     const approvalRequest = buildTokenApprovalRequest(
       assetType,
       batchTransferAddress,
+      preview.request.summary.totalAmount,
     );
     if (!approvalRequest) {
       return;
@@ -247,6 +253,9 @@ const BatchTransfer = () => {
       setIsApproving(true);
       if (typeof injected?.request === "function") {
         await injected.request({ method: "eth_requestAccounts" });
+      }
+      if (Number((await provider.getNetwork()).chainId) !== chainId) {
+        throw new Error("钱包网络在授权过程中发生变化，请重新检查网络");
       }
       const tokenCode = await provider.getCode(checksummedToken);
       if (tokenCode === "0x") {
@@ -263,6 +272,12 @@ const BatchTransfer = () => {
       setApprovalHash(tx.hash);
       setApprovalMessage("授权交易已发送，等待链上确认...");
       await tx.wait();
+      const confirmed = assetType === "erc20"
+        ? BigInt(await token.getFunction("allowance")(account, batchTransferAddress)) >= preview.request.summary.totalAmount
+        : Boolean(await token.getFunction("isApprovedForAll")(account, batchTransferAddress));
+      if (!confirmed) {
+        throw new Error("交易已确认，但链上授权额度仍不足，请检查 Token 合约");
+      }
       setApprovalStatus("approved");
       setApprovalMessage("授权已确认，可以发起批量转账");
     } catch (error) {
@@ -308,6 +323,26 @@ const BatchTransfer = () => {
       setIsSending(true);
       if (typeof injected?.request === "function") {
         await injected.request({ method: "eth_requestAccounts" });
+      }
+      if (Number((await provider.getNetwork()).chainId) !== chainId) {
+        throw new Error("钱包网络在转账过程中发生变化，请重新检查网络");
+      }
+      // A previous asynchronous allowance check may refer to older input values.
+      // Always verify the current token, spender and transfer amount on chain.
+      if (assetType !== "eth") {
+        const checkedToken = getAddress(tokenAddress.trim());
+        const token = new Contract(
+          checkedToken,
+          assetType === "erc20" ? ERC20_APPROVAL_ABI : ERC721_APPROVAL_ABI,
+          provider,
+        );
+        const stillApproved = assetType === "erc20"
+          ? BigInt(await token.getFunction("allowance")(account, batchTransferAddress)) >= preview.request.summary.totalAmount
+          : Boolean(await token.getFunction("isApprovedForAll")(account, batchTransferAddress));
+        if (!stillApproved) {
+          setApprovalStatus("not-approved");
+          throw new Error("当前转账参数未获得足够授权，请重新检查授权");
+        }
       }
       const code = await provider.getCode(batchTransferAddress);
       if (code === "0x") {
@@ -602,6 +637,16 @@ const BatchTransfer = () => {
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {preview.error}
           </div>
+        )}
+        {assetType === "erc20" && (
+          <p className="mt-4 text-sm text-slate-600">
+            为减少资产风险，仅授权本次批量转账所需的总金额，不会默认授权无限额度。
+          </p>
+        )}
+        {assetType === "erc721" && (
+          <p className="mt-4 text-sm text-amber-800">
+            注意：ERC721 的 setApprovalForAll 会授权此合约操作该 NFT 合约下的全部代币，转账完成后建议及时撤销授权。
+          </p>
         )}
         {requiresApproval && approvalMessage && (
           <div
