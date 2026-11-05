@@ -18,7 +18,8 @@ jobs:
       - name: Resolve and update dependency graph
         run: |
           bun install --frozen-lockfile
-          bun audit fix || true
+          bun update
+          bun audit --prod --audit-level=high || true
           bun audit --prod --audit-level=high || true
       - name: Emit updated package manifests
         run: |
