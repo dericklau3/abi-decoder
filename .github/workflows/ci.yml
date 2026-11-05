@@ -17,14 +17,14 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '26'
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
 
       - name: Check Node runtime security baseline
-        run: node -e "const [major, minor, patch] = process.versions.node.split('.').map(Number); if (major !== 24 || minor < 22 || (minor === 22 && patch < 1)) process.exit(1)"
+        run: node -e "const [major, minor, patch] = process.versions.node.split('.').map(Number); if (major !== 26 || minor < 12 || (minor === 12 && patch < 1)) { console.error('Node.js >=26.12.1 <27 required, found ' + process.versions.node); process.exit(1); }"
 
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
