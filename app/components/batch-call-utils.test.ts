@@ -33,7 +33,7 @@ describe("batch-call-utils", () => {
     const valid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     expect(() => parsePrivateKeyLines("abc")).toThrow("私钥格式无效");
     expect(() => parsePrivateKeyLines(valid + "\n0x" + valid)).toThrow("重复私钥");
-    expect(() => parsePrivateKeyLines(Array(101).fill(valid).join("\\n"))).toThrow("最多支持 100");
+    expect(() => parsePrivateKeyLines(Array(101).fill(valid).join("\n"))).toThrow("最多支持 100");
   });
 
   test("previews addresses for valid private keys", () => {
