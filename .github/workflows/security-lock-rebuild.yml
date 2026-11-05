@@ -1,4 +1,4 @@
-name: Patch Bun dependencies (temporary)
+name: Verify patched Bun dependencies (temporary)
 on:
   push:
     branches:
