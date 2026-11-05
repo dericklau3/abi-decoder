@@ -46,6 +46,13 @@ export const parsePrivateKeyLines = (value: string) => {
   if (new Set(privateKeys.map((key) => key.toLowerCase())).size !== privateKeys.length) {
     throw new Error("检测到重复私钥，已阻止重复发送交易");
   }
+  for (const key of privateKeys) {
+    try {
+      new Wallet(key);
+    } catch {
+      throw new Error("存在无效的私钥，请逐行检查后重试");
+    }
+  }
 
   return privateKeys;
 };
