@@ -1,10 +1,5 @@
-import AppShell from "../components/AppShell";
-import BatchContractCaller from "../components/BatchContractCaller";
+import { redirect } from "next/navigation";
 
 export default function BatchCallPage() {
-  return (
-    <AppShell>
-      <BatchContractCaller />
-    </AppShell>
-  );
+  redirect("/batch/?tool=call");
 }

@@ -1,10 +1,5 @@
-import AppShell from "../components/AppShell";
-import BatchBalanceChecker from "../components/BatchBalanceChecker";
+import { redirect } from "next/navigation";
 
 export default function BatchBalancePage() {
-  return (
-    <AppShell>
-      <BatchBalanceChecker />
-    </AppShell>
-  );
+  redirect("/batch/?tool=balance");
 }
