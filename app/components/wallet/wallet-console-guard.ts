@@ -1,5 +1,7 @@
+import { isUserRejectedWalletRequest } from "../contract-interaction-utils";
+
 const walletRejectionPattern =
-  /user rejected|user denied|request rejected|rejected the request|denied transaction|denied message|rejected by user|用户拒绝|拒绝请求|could not coalesce error/i;
+  /user rejected|user denied|rejected by (?:the )?user|用户拒绝/i;
 
 declare global {
   interface Window {
@@ -27,42 +29,6 @@ const getText = (value: unknown): string => {
     }
   }
   return "";
-};
-
-const isWalletRejection = (error: unknown) => {
-  const queue = [error];
-  const seen = new Set<unknown>();
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || seen.has(current)) {
-      continue;
-    }
-    seen.add(current);
-
-    const text = getText(current);
-    if (walletRejectionPattern.test(text)) {
-      return true;
-    }
-
-    if (typeof current === "object") {
-      const record = current as Record<string, unknown>;
-      const code = record.code ?? record.errorCode;
-      if (
-        code === 4001 ||
-        code === "4001" ||
-        code === "ACTION_REJECTED" ||
-        code === "USER_REJECTED" ||
-        code === "USER_DISCONNECTED"
-      ) {
-        return true;
-      }
-
-      queue.push(record.error, record.info, record.data, record.cause, record.reason);
-    }
-  }
-
-  return false;
 };
 
 const closeExpectedWalletToast = () => {
@@ -107,7 +73,7 @@ const installWalletRuntimeGuards = () => {
           ? event.error ?? event.message
           : null;
 
-    if (!isWalletRejection(reason)) {
+    if (!isUserRejectedWalletRequest(reason)) {
       return;
     }
 

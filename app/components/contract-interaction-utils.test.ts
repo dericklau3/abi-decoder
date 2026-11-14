@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { AbiCoder, BrowserProvider, Contract, id } from "ethers";
 
+import * as contractInteraction from "./contract-interaction-utils";
 import {
   appendTransactionOverrides,
   COMMON_ERC20_TOKENS_BY_CHAIN,
@@ -160,6 +162,38 @@ describe("contract-interaction-utils", () => {
 
     expect(isUserRejectedWalletRequest(error)).toBe(true);
     expect(extractContractErrorMessage(error)).toBe("用户拒绝了钱包请求");
+  });
+
+  test("shows the RPC cause of an unknown ethers error", () => {
+    const error = {
+      code: "UNKNOWN_ERROR",
+      shortMessage: "could not coalesce error",
+      message: 'could not coalesce error (code=UNKNOWN_ERROR)',
+      error: {
+        code: -32603,
+        message: "Internal JSON-RPC error.",
+        data: { originalError: { code: -32005, message: "RPC rate limit exceeded" } },
+      },
+    };
+
+    expect(isUserRejectedWalletRequest(error)).toBe(false);
+    expect(extractContractErrorMessage(error)).toBe("RPC rate limit exceeded");
+  });
+
+  test("reports a disconnected wallet and a node rejection as their own errors", () => {
+    for (const message of ["User disconnected", "Request rejected by RPC policy"]) {
+      const error = { code: "USER_DISCONNECTED", message };
+      expect(isUserRejectedWalletRequest(error)).toBe(false);
+      expect(extractContractErrorMessage(error)).toBe(message);
+    }
+  });
+
+  test("shows the underlying RPC message when ethers has no revert data", () => {
+    expect(extractContractErrorMessage({
+      code: "CALL_EXCEPTION",
+      shortMessage: "missing revert data",
+      info: { error: { code: -32000, message: "execution timed out" } },
+    })).toBe("execution timed out");
   });
 
   test("normalizes addresses by adding missing prefix", () => {
@@ -420,5 +454,73 @@ describe("contract-interaction-utils", () => {
     ).toEqual({
       56: store[56],
     });
+  });
+});
+
+describe("contract transaction simulation", () => {
+  const sender = "0x0000000000000000000000000000000000000001";
+  const recipient = "0x0000000000000000000000000000000000000002";
+  const abi = ["function deposit(uint16 slots) payable", "error DepositClosed()"];
+
+  function mockWallet(callError?: Error) {
+    const requests: Array<{ method: string; transaction: unknown }> = [];
+    const provider = new BrowserProvider({
+      async request({ method, params }) {
+        switch (method) {
+          case "eth_chainId": return "0x1";
+          case "eth_accounts": return [sender];
+          case "eth_blockNumber": return "0x10";
+          case "eth_estimateGas": return "0x10000";
+          case "eth_call":
+          case "eth_sendTransaction":
+            requests.push({ method, transaction: Array.isArray(params) ? params[0] : undefined });
+            if (method === "eth_sendTransaction") {
+              throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+            }
+            if (callError) throw callError;
+            return "0x";
+          default: throw new Error(`Unexpected wallet request: ${method}`);
+        }
+      },
+    }, 1, { staticNetwork: true });
+    return { provider, requests };
+  }
+
+  test("a reverted simulation reports the ABI custom error without requesting a transaction", async () => {
+    const revert = Object.assign(new Error("execution reverted"), {
+      code: 3,
+      data: id("DepositClosed()").slice(0, 10),
+    });
+    const { provider, requests } = mockWallet(revert);
+    try {
+      const contract = new Contract(recipient, abi, await provider.getSigner(sender));
+      const send = contractInteraction.simulateAndSendContractTransaction;
+      await expect(send(contract.getFunction("deposit"), [600n, { value: 5n }]))
+        .rejects.toMatchObject({ name: "ContractSimulationError", message: "execution reverted: DepositClosed()" });
+      expect(requests.map(({ method }) => method)).toEqual(["eth_call"]);
+    } finally {
+      provider.destroy();
+    }
+  });
+
+  test("the wallet receives the same sender, recipient, data and value that passed simulation", async () => {
+    const { provider, requests } = mockWallet();
+    try {
+      const contract = new Contract(recipient, abi, await provider.getSigner(sender));
+      const send = contractInteraction.simulateAndSendContractTransaction;
+      await expect(send(contract.getFunction("deposit"), [600n, { value: 5n }]))
+        .rejects.toMatchObject({ code: "ACTION_REJECTED" });
+      expect(requests.map(({ method }) => method)).toEqual(["eth_call", "eth_sendTransaction"]);
+      const transaction = {
+        from: sender,
+        to: recipient,
+        data: id("deposit(uint16)").slice(0, 10) + AbiCoder.defaultAbiCoder().encode(["uint16"], [600]).slice(2),
+        value: "0x5",
+      };
+      expect(requests[0].transaction).toMatchObject(transaction);
+      expect(requests[1].transaction).toMatchObject(transaction);
+    } finally {
+      provider.destroy();
+    }
   });
 });

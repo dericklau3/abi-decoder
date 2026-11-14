@@ -1,4 +1,4 @@
-import { getAddress, Interface, ParamType, parseUnits } from "ethers";
+import { type BaseContractMethod, getAddress, Interface, ParamType, parseUnits } from "ethers";
 
 export type IntegerUnit = "wei" | "gwei" | "ether";
 
@@ -562,11 +562,18 @@ export const appendTransactionOverrides = (
   return [...args, { value: trimmedPayableValue }];
 };
 
+const walletRejectionPattern =
+  /^(?:(?:metamask[^:\n]*|ethers-user-denied):\s*)?user (?:rejected|denied)\b|^(?:the )?(?:request|transaction|action) (?:was )?rejected by (?:the )?user\b|^用户拒绝/i;
+
+const genericErrorPattern =
+  /^(?:could not coalesce error|missing revert data|internal (?:json-rpc |rpc )?error|an (?:internal|unknown) (?:rpc )?error (?:occurred|was received)|execution reverted)(?:[.!]?\s*$|\s+\()/i;
+
 const getErrorFields = (error: unknown) => {
   const queue: unknown[] = [error];
   const seen = new Set<unknown>();
   const messages: string[] = [];
-  const codes: Array<string | number> = [];
+  let code: string | number | undefined;
+  let rejected = false;
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -575,59 +582,76 @@ const getErrorFields = (error: unknown) => {
     }
     seen.add(current);
 
-    if (typeof current === "string" && current.trim()) {
-      messages.push(current.trim());
-      continue;
+    const record = typeof current === "object"
+      ? current as Record<string, unknown>
+      : { message: current };
+    const codes = [record.code, record.errorCode];
+    code ??= codes.find((value) => typeof value === "string" || typeof value === "number");
+
+    let { shortMessage } = record;
+    // Ethers decodes custom errors into reason but retains the generic shortMessage.
+    if (record.revert && typeof record.reason === "string" &&
+        typeof shortMessage === "string" && shortMessage.startsWith("execution reverted (unknown custom error)")) {
+      shortMessage = `execution reverted: ${record.reason}`;
     }
 
-    if (typeof current === "object") {
-      const record = current as Record<string, unknown>;
-      [record.shortMessage, record.reason, record.message].forEach((value) => {
-        if (typeof value === "string" && value.trim()) {
-          messages.push(value.trim());
-        }
-      });
-      [record.code, record.errorCode].forEach((value) => {
-        if (typeof value === "string" || typeof value === "number") {
-          codes.push(value);
-        }
-      });
-      queue.push(record.error, record.info, record.data, record.cause);
+    const directMessage = [shortMessage, record.message, record.details, record.reason]
+      .find((value) => typeof value === "string" && value.trim());
+    const actionNotRejected = codes.includes("ACTION_REJECTED") &&
+      (record.reason === "pending" || record.reason === "expired");
+
+    rejected ||= !actionNotRejected && (
+      codes.some((value) => value === 4001 || value === "4001" || value === 5000 || value === "5000" ||
+        value === "ACTION_REJECTED" || value === "USER_REJECTED") ||
+      (typeof directMessage === "string" && walletRejectionPattern.test(directMessage))
+    );
+
+    const candidates = actionNotRejected
+      ? [record.details, record.reason, record.message]
+      : [shortMessage, record.details, record.reason, record.message];
+    for (const value of candidates) {
+      if (typeof value === "string" && value.trim()) messages.push(value.trim());
     }
+    // RPC data can wrap an originalError or hold hex revert data, not a message.
+    const data = typeof record.data === "object" ? record.data : undefined;
+    queue.push(record.cause, record.error, record.originalError, record.info, data);
   }
 
-  return { messages, codes };
+  return { messages, code, rejected };
 };
 
-export const isUserRejectedWalletRequest = (error: unknown) => {
-  const { messages, codes } = getErrorFields(error);
-  if (
-    codes.some(
-      (code) =>
-        code === 4001 ||
-        code === "4001" ||
-        code === "ACTION_REJECTED" ||
-        code === "USER_REJECTED" ||
-        code === "USER_DISCONNECTED",
-    )
-  ) {
-    return true;
-  }
-
-  return messages.some((message) =>
-    /user rejected|user denied|request rejected|rejected the request|denied transaction|denied message|rejected by user|用户拒绝|拒绝请求|could not coalesce error/i.test(
-      message,
-    ),
-  );
-};
+export const isUserRejectedWalletRequest = (error: unknown) => getErrorFields(error).rejected;
 
 export const extractContractErrorMessage = (error: unknown): string => {
-  if (isUserRejectedWalletRequest(error)) {
+  const { messages, code, rejected } = getErrorFields(error);
+  if (rejected) {
     return "用户拒绝了钱包请求";
   }
 
-  const { messages } = getErrorFields(error);
-  return messages[0] ?? "未知错误，请检查钱包弹窗、网络和合约参数";
+  return messages.find((message) => !genericErrorPattern.test(message)) ??
+    messages[0] ??
+    (code === undefined ? "未知错误，请检查钱包弹窗、网络和合约参数" : `错误代码：${code}`);
+};
+
+export class ContractSimulationError extends Error {
+  constructor(cause: unknown) {
+    super(extractContractErrorMessage(cause), { cause });
+    this.name = "ContractSimulationError";
+  }
+}
+
+export const simulateAndSendContractTransaction = async (
+  method: BaseContractMethod,
+  args: unknown[],
+  simulate = () => method.staticCall(...args),
+) => {
+  try {
+    await simulate();
+  } catch (error) {
+    throw new ContractSimulationError(error);
+  }
+
+  return method.send(...args);
 };
 
 export { normalizeAddressInput };

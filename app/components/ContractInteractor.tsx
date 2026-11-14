@@ -14,6 +14,7 @@ import {
   appendTransactionOverrides,
   COMMON_ERC20_TOKENS_BY_CHAIN,
   CONTRACT_INTERACTION_CUSTOM_ERC20_TOKENS_KEY,
+  ContractSimulationError,
   createCustomErc20Token,
   encodeFunctionCalldata,
   extractContractErrorMessage,
@@ -36,6 +37,7 @@ import {
   serializeParamType,
   setArgumentInputValue,
   setArgumentUnitValue,
+  simulateAndSendContractTransaction,
 } from "./contract-interaction-utils";
 
 type SavedAbi = { name: string; abi: string };
@@ -128,7 +130,6 @@ const getChainLabel = (name: string, chainId: number | null) => {
 const ContractInteractor = () => {
   const {
     provider: sharedProvider,
-    injected: sharedInjected,
     account: sharedAccount,
     networkName: sharedNetworkName,
     chainId: sharedChainId,
@@ -144,7 +145,6 @@ const ContractInteractor = () => {
   const [argUnits, setArgUnits] = useState<Record<string, ArgumentUnitValues>>({});
   const [payableValues, setPayableValues] = useState<Record<string, string>>({});
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
-  const [injected, setInjected] = useState<ReturnType<typeof useWallet>["injected"]>(null);
   const [account, setAccount] = useState("");
   const [networkName, setNetworkName] = useState("");
   const [chainId, setChainId] = useState<number | null>(null);
@@ -175,11 +175,10 @@ const ContractInteractor = () => {
 
   useEffect(() => {
     setProvider(sharedProvider);
-    setInjected(sharedInjected);
     setAccount(sharedAccount);
     setNetworkName(sharedNetworkName);
     setChainId(sharedChainId);
-  }, [sharedProvider, sharedInjected, sharedAccount, sharedNetworkName, sharedChainId]);
+  }, [sharedProvider, sharedAccount, sharedNetworkName, sharedChainId]);
 
   useEffect(() => {
     const savedAbiList = safeJsonParse<Array<SavedAbi>>(
@@ -589,6 +588,9 @@ const ContractInteractor = () => {
   };
 
   const handleApproveErc20Token = async (signature: string) => {
+    if (approvingSignatures[signature]) {
+      return;
+    }
     setApprovalFeedback(signature, "");
     if (!provider) {
       setApprovalFeedback(signature, "请先连接钱包");
@@ -616,28 +618,34 @@ const ContractInteractor = () => {
 
     try {
       setApprovingSignatures((prev) => ({ ...prev, [signature]: true }));
-      if (typeof injected?.request === "function") {
-        await injected.request({ method: "eth_requestAccounts" });
-      }
       const tokenCode = await provider.getCode(selectedApprovalToken.address);
       if (tokenCode === "0x") {
         throw new Error("当前链上未找到 Token 合约，请检查 Token 地址与钱包网络");
       }
-      const signer = await provider.getSigner();
+      const signer = await provider.getSigner(account || undefined);
       const tokenContract = new Contract(
         selectedApprovalToken.address,
         ERC20_APPROVAL_ABI,
         signer,
       );
       const approve = tokenContract.getFunction("approve");
-      const tx = await approve(spender, amount);
+      const args = [spender, amount];
+      const tx = await simulateAndSendContractTransaction(approve, args, async () => {
+        const result = await signer.call(await approve.populateTransaction(...args));
+        // Older ERC-20 contracts can succeed without returning a value.
+        if (result !== "0x" && tokenContract.interface.decodeFunctionResult("approve", result)[0] === false) {
+          throw new Error("代币合约的 approve 返回 false");
+        }
+      });
       setApprovalFeedback(signature, "授权交易已发送，等待链上确认...", tx.hash);
       await tx.wait();
       setApprovalFeedback(signature, "授权已确认，可以继续调用目标函数", tx.hash);
     } catch (err) {
       setApprovalFeedback(
         signature,
-        "授权失败：" + extractContractErrorMessage(err),
+        err instanceof ContractSimulationError
+          ? "授权模拟失败：" + err.message
+          : "授权失败：" + extractContractErrorMessage(err),
       );
     } finally {
       setApprovingSignatures((prev) => ({ ...prev, [signature]: false }));
@@ -711,6 +719,9 @@ const ContractInteractor = () => {
   };
 
   const handleSend = async (fnInfo: FunctionInfo) => {
+    if (loadingSignatures[fnInfo.signature]) {
+      return;
+    }
     resetOutputs(fnInfo.signature);
     if (!provider) {
       setFunctionError(fnInfo.signature, "请先连接钱包");
@@ -730,10 +741,7 @@ const ContractInteractor = () => {
     }
     try {
       setFunctionLoading(fnInfo.signature, true);
-      if (typeof injected?.request === "function") {
-        await injected.request({ method: "eth_requestAccounts" });
-      }
-      const signer = await provider.getSigner();
+      const signer = await provider.getSigner(account || undefined);
       const checksummed = getAddress(normalizedAddress);
       const code = await provider.getCode(checksummed);
       if (code === "0x") {
@@ -756,12 +764,14 @@ const ContractInteractor = () => {
           ? { value: parseEther((item as { value: string }).value) }
           : item,
       );
-      const tx = await fn(...txArgs);
+      const tx = await simulateAndSendContractTransaction(fn, txArgs);
       setTxHashes((prev) => ({ ...prev, [fnInfo.signature]: tx.hash }));
     } catch (err) {
       setFunctionError(
         fnInfo.signature,
-        "交易发送失败：" + extractContractErrorMessage(err),
+        err instanceof ContractSimulationError
+          ? "模拟调用失败：" + err.message
+          : "交易发送失败：" + extractContractErrorMessage(err),
       );
     } finally {
       setFunctionLoading(fnInfo.signature, false);
@@ -1511,7 +1521,7 @@ const ContractInteractor = () => {
                                 onClick={() => handleSend(item)}
                                 disabled={isFunctionLoading}
                               >
-                                {isFunctionLoading ? "发送中..." : "发送交易"}
+                                {isFunctionLoading ? "处理中..." : "发送交易"}
                               </button>
                             </div>
 

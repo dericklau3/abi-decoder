@@ -8,7 +8,7 @@ const closeExpectedWalletToast = () => {
     const root = portal.shadowRoot;
     if (
       !root ||
-      !/user rejected|user denied|request rejected|rejected the request|denied transaction|denied message|rejected by user|用户拒绝|拒绝请求|could not coalesce error/i.test(
+      !/user rejected|user denied|rejected by (?:the )?user|用户拒绝/i.test(
         root.textContent ?? "",
       )
     ) {

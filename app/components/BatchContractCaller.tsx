@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Contract, getAddress, Interface, Wallet } from "ethers";
 import { useWallet } from "./wallet/WalletProvider";
 import {
+  ContractSimulationError,
   extractContractErrorMessage,
   normalizeAddressInput,
+  simulateAndSendContractTransaction,
 } from "./contract-interaction-utils";
 import {
   BatchCallFunctionInfo,
@@ -263,12 +265,14 @@ const BatchContractCaller = () => {
         try {
           const contract = new Contract(checksummedContract, abi, wallet);
           const fn = contract.getFunction(selectedFunction.signature);
-          const tx = await fn(...txArgs);
+          const tx = await simulateAndSendContractTransaction(fn, txArgs);
           updateResult(index, { status: "success", txHash: tx.hash });
         } catch (error) {
           updateResult(index, {
             status: "failed",
-            error: extractContractErrorMessage(error),
+            error: error instanceof ContractSimulationError
+              ? "模拟调用失败：" + error.message
+              : "交易发送失败：" + extractContractErrorMessage(error),
           });
         }
       }
