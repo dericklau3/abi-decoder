@@ -1,4 +1,5 @@
-import { connect, createConfig, createConnector, disconnect, getAccount, getConnectorClient, http } from "@wagmi/core";
+import { createConfig, createConnector, http } from "wagmi";
+import { connect, disconnect, getConnection, getConnectorClient } from "wagmi/actions";
 import { mainnet } from "viem/chains";
 import { describe, expect, test } from "bun:test";
 import { createWalletProvider, getWalletNetwork } from "./wallet-network";
@@ -43,14 +44,14 @@ test("wagmi keeps an unlisted wallet chain through connect, switch and disconnec
   }));
   const config = createConfig({ chains: [mainnet], connectors: [connector], transports: { [mainnet.id]: http() }, storage: null });
   await connect(config, { connector: config.connectors[0] });
-  expect(getAccount(config).chainId).toBe(123456789);
+  expect(getConnection(config).chainId).toBe(123456789);
   const client = await getConnectorClient(config, { chainId: 123456789 });
   expect(client.chain).toBeUndefined();
   expect((await createWalletProvider(client.transport, getWalletNetwork(123456789)).getNetwork()).chainId).toBe(123456789n);
   config.connectors[0].onChainChanged("0x12345");
-  expect(getAccount(config).chainId).toBe(74565);
+  expect(getConnection(config).chainId).toBe(74565);
   const switched = await getConnectorClient(config, { chainId: 74565 });
   expect((await createWalletProvider(switched.transport, getWalletNetwork(74565)).getNetwork()).chainId).toBe(74565n);
   await disconnect(config);
-  expect(getAccount(config).isConnected).toBe(false);
+  expect(getConnection(config).isConnected).toBe(false);
 });

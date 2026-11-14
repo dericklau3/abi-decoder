@@ -1,14 +1,11 @@
 "use client";
 
 import "./wallet-console-guard";
-import { getDefaultConfig } from "@rainbow-me/rainbowkit";
-import {
-  injectedWallet,
-  walletConnectWallet,
-} from "@rainbow-me/rainbowkit/wallets";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { http, WagmiProvider } from "wagmi";
+import { createConfig, http, WagmiProvider } from "wagmi";
+import { injected } from "wagmi/connectors/injected";
+import { walletConnect } from "wagmi/connectors/walletConnect";
 import {
   arbitrum,
   avalanche,
@@ -24,9 +21,19 @@ import { arcTestnet, robinhoodTestnet } from "./chains";
 import { WalletProvider } from "./WalletProvider";
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
-const wallets = walletConnectProjectId
-  ? [injectedWallet, walletConnectWallet]
-  : [injectedWallet];
+const walletConnectConnector = walletConnectProjectId
+  ? walletConnect({ projectId: walletConnectProjectId })
+  : null;
+const connectors = walletConnectConnector
+  ? [injected(), (config: Parameters<typeof walletConnectConnector>[0]) => {
+      const connector = walletConnectConnector(config);
+      return {
+        ...connector,
+        // WalletConnect setup opens IndexedDB, which is only available in the browser.
+        setup: typeof window === "undefined" ? undefined : connector.setup,
+      };
+    }]
+  : [injected()];
 const RPC_URLS = {
   mainnet: "https://ethereum-rpc.publicnode.com",
   bsc: "https://bsc-rpc.publicnode.com",
@@ -39,15 +46,8 @@ const RPC_URLS = {
   sepolia: "https://ethereum-sepolia-rpc.publicnode.com",
 } as const;
 
-const config = getDefaultConfig({
-  appName: "EVM Toolkit",
-  projectId: walletConnectProjectId ?? "injected-wallets-only",
-  wallets: [
-    {
-      groupName: "钱包",
-      wallets,
-    },
-  ],
+const config = createConfig({
+  connectors,
   chains: [
     mainnet,
     bsc,

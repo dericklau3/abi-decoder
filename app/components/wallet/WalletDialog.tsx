@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAccount, useChains, useConnect, useDisconnect, useSwitchChain } from "wagmi";
+import { useChains, useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 
 export function WalletDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const account = useAccount();
+  const account = useConnection();
   const chains = useChains();
-  const { connectors, connectAsync, isPending: connecting } = useConnect();
-  const { switchChainAsync, isPending: switching } = useSwitchChain();
-  const { disconnect } = useDisconnect();
+  const connectors = useConnectors();
+  const { mutateAsync: connectAsync, isPending: connecting } = useConnect();
+  const { mutateAsync: switchChainAsync, isPending: switching } = useSwitchChain();
+  const { mutate: disconnect } = useDisconnect();
   const [error, setError] = useState("");
   const busy = connecting || switching;
 

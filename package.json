@@ -11,14 +11,14 @@
   },
   "dependencies": {
     "@ethers-ext/provider-multicall": "^6.0.0-beta.3",
-    "@rainbow-me/rainbowkit": "^2.2.11",
     "@tanstack/react-query": "^5.106.1",
+    "@walletconnect/ethereum-provider": "^2.21.1",
     "ethers": "^6.17.0",
     "next": "16.4.5",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "viem": "^2.57.16",
-    "wagmi": "^2.19.5"
+    "wagmi": "^3.7.11"
   },
   "overrides": {
     "qr": "0.5.1",

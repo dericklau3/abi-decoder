@@ -5,7 +5,7 @@ import { MulticallProvider } from "@ethers-ext/provider-multicall";
 import { createContext, useContext, useMemo, useState } from "react";
 import { WalletDialog } from "./WalletDialog";
 import { createWalletProvider, getWalletNetwork } from "./wallet-network";
-import { useAccount, useConnectorClient, useDisconnect } from "wagmi";
+import { useConnection, useConnectorClient, useDisconnect } from "wagmi";
 
 export type InjectedProvider = {
   on?: (event: string, handler: (...args: any[]) => void) => void;
@@ -29,13 +29,13 @@ type WalletContextValue = {
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 export const WalletProvider = ({ children }: { children: React.ReactNode }) => {
-  const account = useAccount();
+  const account = useConnection();
   const [dialogOpen, setDialogOpen] = useState(false);
   const chainId = account.isConnected ? account.chainId : undefined;
   const network = chainId === undefined ? undefined : getWalletNetwork(chainId, account.chain);
   const { data: connectorClient, isLoading: isConnectorClientLoading } =
     useConnectorClient({ chainId, query: { enabled: account.isConnected && chainId !== undefined } });
-  const { disconnect } = useDisconnect();
+  const { mutate: disconnect } = useDisconnect();
 
   const provider = useMemo(() => {
     if (!connectorClient || chainId === undefined) return null;
